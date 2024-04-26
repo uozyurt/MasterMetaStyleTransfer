@@ -56,8 +56,12 @@ class custom_loss(nn.Module):
 
         # check if the VGG19 model is created and saved
         if not os.path.exists(feature_extractor_model_path):
+            # add the project path to the system path
+            import sys
+            sys.path.append(project_absolute_path)
+
             # import the function to download the VGG19 model and create the cutted model
-            from utils.download_VGG19_create_cutted_model_to_process import download_VGG19_and_create_cutted_model_to_process
+            from codes.utils.download_VGG19_create_cutted_model_to_process import download_VGG19_and_create_cutted_model_to_process
 
             # create the VGG19 cutted model and save it
             download_VGG19_and_create_cutted_model_to_process(project_absolute_path,
@@ -196,6 +200,7 @@ if __name__ == "__main__":
     
     # get the absolute path of the project
     project_absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
     
     # create an instance of the custom loss class
     custom_loss_instance = custom_loss(project_absolute_path = project_absolute_path,
