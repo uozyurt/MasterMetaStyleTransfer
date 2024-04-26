@@ -1,13 +1,8 @@
 import torch
 import os
 import torch.nn as nn
-import torch.nn.functional as F
-import cv2
-import numpy as np
 
 
-
-# YOU NEED A VGG19 MODEL AS A .pt FILE TO RUN THIS CODE (run 1_download_VGG19_create_cutted_model_to_process.py)
 
 # define the custom VGG19 model using the original VGG19 model as input
 class VGG19_custom(nn.Module):
@@ -189,6 +184,9 @@ class custom_loss(nn.Module):
 
 if __name__ == "__main__":
 
+    import cv2
+    import numpy as np
+    
     # define a function to preprocess the image
     def preprocess_image(image):
         image = cv2.resize(image, (256, 256))
