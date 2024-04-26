@@ -22,7 +22,6 @@ coco download link: http://images.cocodataset.org/zips/train2017.zip (18 GB)
 
 notes and assumptions:
 
-* !!! RELATIVE IMPORTS ARE USED IN THE CODE !!! (this is important for the code to work)
 * python 3.10 is used
 ```bash
 conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.6 -c pytorch -c nvidia
