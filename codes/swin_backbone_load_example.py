@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import sys
 import os
 import torch
@@ -5,6 +6,15 @@ import cv2
 import matplotlib.pyplot as plt
 
 if(__name__ == "__main__"):
+=======
+if(__name__ == "__main__"):
+    import sys
+    import os
+    import torch
+    import cv2
+    import matplotlib.pyplot as plt
+
+>>>>>>> 52c8909aed73c14d3619ba10cb6172e613e86144
     project_absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
     # add the project path to the system path
