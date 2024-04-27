@@ -29,7 +29,7 @@ conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cud
 * pytorch 1.13.1 is used
 * torchvision 0.14.1 is used
 * pytorch-cuda 11.6 is used
-
+* timm used (pip)
 
 * VGG 19 is used without batchnorm (it is not declared in the paper which VGG19 is used)
 * Swin B (base) is used as the transformer model (it is also not declared) (not swin2, swin1 is used)
