@@ -9,7 +9,8 @@ from torchvision.models import swin_transformer, vgg19
 def download_VGG19_and_create_cutted_model_to_process(absolute_project_path,
                                                       model_save_relative_path="weights/vgg_19_last_layer_is_relu_5_1_output.pt"):
     """
-    # load VGG19 model from torchvision
+    Loads the VGG19 model from torchvision and saves the model with the last layer being relu 5_1.
+
     Very Deep Convolutional Networks For Large-Scale Image Recognition: <https://arxiv.org/pdf/1409.1556.pdf>
 
     Load code: <https://pytorch.org/vision/0.8/_modules/torchvision/models/vgg.html>
@@ -39,6 +40,8 @@ def download_VGG19_and_create_cutted_model_to_process(absolute_project_path,
 def download_swin_and_create_cutted_model(absolute_project_path,
                                           model_save_relative_path="weights/swin_B_first_2_stages.pt"):
         """
+        Loads the Swin Transformer model from torchvision and saves the model with the first 2 stages.
+
         Swin Transformer: Hierarchical Vision Transformer using Shifted Windows: <https://arxiv.org/abs/2103.14030>
 
         Load code: <https://pytorch.org/vision/main/models/swin_transformer.html>

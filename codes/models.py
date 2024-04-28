@@ -133,10 +133,12 @@ class SwinEncoder(torch.nn.Module):
         """
         super().__init__()
 
-        # Resolve the default path to be 'PROJECT_FOLDER/swin_B_first_2_stages.pt' relative to the script's location
-
-        self.model = download_swin_and_create_cutted_model(absolute_project_path = project_absolute_path,
-                                                           model_save_relative_path = relative_model_path)
+        # if swin model is not already saved, download the model, get first 2 stages and save it
+        download_swin_and_create_cutted_model(absolute_project_path = project_absolute_path,
+                                              model_save_relative_path = relative_model_path)
+        
+        # Load the model from the specified path
+        self.model = torch.load(os.path.join(project_absolute_path, relative_model_path))
         
         if freeze_params:
             self.freeze_parameters()
