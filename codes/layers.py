@@ -414,29 +414,35 @@ class StyleTransformerEncoderBlock(nn.Module):
 
 class StyleTransformerDecoderBlock(nn.Module):
     """
-    A Style Transformer Encoder Block that uses shifted window based multi-head self-attention (SW-MSA)
-    for processing style-related transformations in images. This block supports both cyclic shift and
-    standard attention mechanisms, making it suitable for a variety of spatial transformer applications.
+    Implements a decoder block for a Style Transformer, which combines content and style features to generate
+    stylized outputs. This block uses a shifted window based multi-head self-attention mechanism for processing
+    the content features and a shifted window based multi-head cross-attention mechanism to adaptively adjust
+    these features based on style, scale, and shift parameters derived from style features.
+
+    The block leverages two types of attention:
+    1. Self-attention on the content features for intra-window interaction.
+    2. Cross-attention where the style features affect the transformation of content features.
 
     Args:
         dim (int): Number of input channels.
-        input_resolution (tuple[int]): Dimensions (height, width) of the input feature map.
+        input_resolution (tuple[int, int]): Dimensions (height, width) of the input feature map.
         num_heads (int): Number of attention heads.
         window_size (int): Size of the attention window.
-        shift_size (int): Offset for cyclic shift within the window attention mechanism.
-        mlp_ratio (float): Expansion ratio for the MLP block compared to input channels.
-        qkv_bias (bool, optional): If True, adds a learnable bias to query, key, value projections.
-        qk_scale (float | None, optional): Custom scaling for query-key dot product.
-        drop (float, optional): Dropout rate for output projection.
-        attn_drop (float, optional): Dropout rate for attention weights.
-        act_layer (nn.Module, optional): Type of activation function to use.
+        shift_size (int): Offset for the cyclic shift within the window attention mechanism.
+        mlp_ratio (float): Expansion ratio for the MLP block compared to the number of input channels.
+        qkv_bias (bool, optional): If set to True, adds a learnable bias to query, key, value projections.
+        qk_scale (float | None, optional): Custom scaling factor for query-key dot products in attention mechanisms.
+        drop (float, optional): Dropout rate applied to the output of the MLP block.
+        attn_drop (float, optional): Dropout rate applied to attention weights.
+        act_layer (nn.Module, optional): Activation function used in the MLP block. Defaults to nn.ReLU.
 
     Attributes:
-        attn (WindowAttention): The window-based attention mechanism.
-        mlp_x (Mlp): MLP for processing the main features.
-        mlp_scale (Mlp): MLP for processing the scale adjustments.
-        mlp_shift (Mlp): MLP for processing the shift adjustments.
-        attn_mask (torch.Tensor): Mask for attention to handle visibility between windows.
+        attn (WindowAttention): The window-based self-attention mechanism.
+        mlp (Mlp): MLP block used after attention operations for transforming the features.
+        norm_content (nn.InstanceNorm2d): Instance normalization applied to content features.
+        norm_style (nn.InstanceNorm2d): Instance normalization applied to style features.
+        attn_mask (torch.Tensor): Attention mask for managing visibility between different windows, particularly useful
+                                  when applying the shifted window strategy.
     """
 
     def __init__(self, dim, input_resolution, num_heads, window_size=8, shift_size=4,
@@ -484,7 +490,7 @@ class StyleTransformerDecoderBlock(nn.Module):
     def _create_attention_mask(self, input_resolution):
         """
         Creates an attention mask for the shifted window attention mechanism.
-        This mask helps in differentiating the shifted window positions during self-attention.
+        This mask helps in differentiating the shifted window positions during attention.
 
         Args:
             input_resolution (tuple): The dimensions of the input feature map (height, width).
@@ -517,16 +523,17 @@ class StyleTransformerDecoderBlock(nn.Module):
 
     def forward(self, content, style, scale, shift):
         """
-        Forward pass of the StyleTransformerEncoderBlock.
+        Forward pass of the StyleTransformerDecoderBlock.
 
         Args:
-            content (torch.Tensor): Content features (B, H*W, C).
-            style (torch.Tensor): Style features (B, H*W, C).
-            scale (torch.Tensor): Scale features (B, H*W, C).
-            shift (torch.Tensor): Shift features (B, H*W, C).
+            content (torch.Tensor): Content features of shape (B, H*W, C) where B is the batch size,
+                                    H and W are the spatial dimensions, and C is the channel dimension.
+            style (torch.Tensor): Style features, shaped similarly to the content features.
+            scale (torch.Tensor): Scale factors derived from the style features, used for modifying the content features.
+            shift (torch.Tensor): Shift values derived from the style features, used for modifying the content features.
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Updated content-style features.
+            torch.Tensor: The transformed content features, which have been stylized by the given style, scale, and shift parameters.
         """
         H, W = self.input_resolution
         B, L, C = content.shape
@@ -580,6 +587,7 @@ class StyleTransformerDecoderBlock(nn.Module):
 
         Args:
             content (torch.Tensor): Spatial feature map (B, H, W, C).
+            cross (bool): If True, applies cross-attention instead of self-attention.
             style (torch.Tensor): Style feature map (B, H, W, C).
             scale (torch.Tensor): Scale feature map (B, H, W, C).
             shift (torch.Tensor): Shift feature map (B, H, W, C).
@@ -607,11 +615,11 @@ class StyleTransformerDecoderBlock(nn.Module):
 
         Args:
             content (torch.Tensor): Shifted spatial feature map (B, H, W, C).
+            C (int): Number of dimensions in the input feature maps.
+            cross (bool): If True, applies cross-attention instead of self-attention.
             style (torch.Tensor): Shifted style feature map (B, H, W, C).
             scale (torch.Tensor): Shifted scale feature map (B, H, W, C).
             shift (torch.Tensor): Shifted shift feature map (B, H, W, C).
-            C (int): Number of dimensions in the input feature maps.
-            cross (bool): If True, applies cross-attention instead of self-attention.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Window-processed feature maps.
@@ -654,12 +662,13 @@ class StyleTransformerDecoderBlock(nn.Module):
 
         Args:
             attn_windows (torch.Tensor): Attended feature windows (nW*B, window_size, window_size, C).
-            scale_attn_windows (torch.Tensor): Attended scale windows (nW*B, window_size, window_size, C).
-            shift_attn_windows (torch.Tensor): Attended shift windows (nW*B, window_size, window_size, C).
             H (int): Height of the input feature map.
             W (int): Width of the input feature map.
             B (int): Batch size.
             C (int): Number of channels.
+            cross (bool): If True, applies cross-attention instead of self-attention.
+            scale_attn_windows (torch.Tensor): Attended scale windows (nW*B, window_size, window_size, C).
+            shift_attn_windows (torch.Tensor): Attended shift windows (nW*B, window_size, window_size, C).
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Reversed and merged feature maps.
