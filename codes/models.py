@@ -49,3 +49,66 @@ class StyleTransformer(nn.Module):
             content = self.decoder(content, style, scale, shift)
 
         return content
+
+
+class Decoder(nn.Module):
+    """
+    StyleTransferDecoder constructs the image from encoded features using upsampling and convolution layers.
+    The design follows the architecture described in "Arbitrary Style Transfer in Real-time with Adaptive Instance Normalization"
+    by Huang and Belongie. It consists of multiple upsampling and convolution layers to gradually upscale the feature map
+    to the target resolution, interspersed with ReLU activation functions to introduce non-linearities.
+
+    This decoder architecture is particularly effective for style transfer, as it allows for high flexibility in manipulating
+    the style and content features, and then reassembling them into the stylized output.
+
+    Reference:
+    Huang, X., & Belongie, S. (2017). Arbitrary Style Transfer in Real-time with Adaptive Instance Normalization.
+    In Proceedings of the IEEE International Conference on Computer Vision (pp. 1501-1510).
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        self.decoder = nn.Sequential(
+            nn.ReflectionPad2d((1, 1, 1, 1)),
+            nn.Conv2d(256, 128, (3, 3)),
+            nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.ReflectionPad2d((1, 1, 1, 1)),
+            nn.Conv2d(128, 128, (3, 3)),
+            nn.ReLU(),
+            nn.ReflectionPad2d((1, 1, 1, 1)),
+            nn.Conv2d(128, 128, (3, 3)),
+            nn.ReLU(),
+            nn.ReflectionPad2d((1, 1, 1, 1)),
+            nn.Conv2d(128, 128, (3, 3)),
+            nn.ReLU(),
+            nn.ReflectionPad2d((1, 1, 1, 1)),
+            nn.Conv2d(128, 64, (3, 3)),
+            nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.ReflectionPad2d((1, 1, 1, 1)),
+            nn.Conv2d(64, 64, (3, 3)),
+            nn.ReLU(),
+            nn.ReflectionPad2d((1, 1, 1, 1)),
+            nn.Conv2d(64, 32, (3, 3)),
+            nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.ReflectionPad2d((1, 1, 1, 1)),
+            nn.Conv2d(32, 32, (3, 3)),
+            nn.ReLU(),
+            nn.ReflectionPad2d((1, 1, 1, 1)),
+            nn.Conv2d(32, 3, (3, 3)),
+        )
+
+    def forward(self, x):
+        """
+        Forward pass of the StyleTransferDecoder.
+
+        Args:
+            x (torch.Tensor): Input tensor of encoded features from the content and style encoding layer.
+
+        Returns:
+            torch.Tensor: Output tensor of the stylized image.
+        """
+        return self.decoder(x)
