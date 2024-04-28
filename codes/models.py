@@ -1,8 +1,13 @@
 import torch
 import torch.nn as nn
+import os
+import sys
 
 from layers import StyleTransformerEncoderBlock, StyleTransformerDecoderBlock
 
+project_absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+from codes.utils import download_swin_and_create_cutted_model
 
 class StyleTransformer(nn.Module):
     """
@@ -114,12 +119,12 @@ class StyleDecoder(nn.Module):
 
 
 class SwinEncoder(torch.nn.Module):
-    def __init__(self, model_path=None, freeze_params=False):
+    def __init__(self, relative_model_path="weights/swin_B_first_2_stages.pt", freeze_params=False):
         """
         Initializes the SwinEncoder object which uses the first two stages of the Swin Transformer.
 
         Args:
-        model_path (str, optional): Path where the Swin model is saved or should be saved. Defaults to '../ckpt/swin_B_first_2_stages.pt'.
+        model_path (str, optional): Path where the Swin model is saved or should be saved. Defaults to 'PROJECT_FOLDER/swin_B_first_2_stages.pt'.
         freeze_params (bool): If True, the parameters of the model will be frozen.
 
         References:
@@ -127,42 +132,15 @@ class SwinEncoder(torch.nn.Module):
         - Official PyTorch Vision documentation for Swin Transformers: https://pytorch.org/vision/stable/models.html#torchvision.models.swin_transformer
         """
         super().__init__()
-        if model_path is None:
-            # Resolve the default path to be '../ckpt/swin_B_first_2_stages.pt' relative to the script's location
-            script_directory = os.path.dirname(__file__)
-            default_directory = os.path.abspath(os.path.join(script_directory, '..', 'ckpt'))
-            model_path = os.path.join(default_directory, 'swin_B_first_2_stages.pt')
+
+        # Resolve the default path to be 'PROJECT_FOLDER/swin_B_first_2_stages.pt' relative to the script's location
+
+        self.model = download_swin_and_create_cutted_model(absolute_project_path = project_absolute_path,
+                                                           model_save_relative_path = relative_model_path)
         
-        self.model_path = model_path
-        self.model = self.load_or_download_model()
         if freeze_params:
             self.freeze_parameters()
 
-    def load_or_download_model(self):
-        """
-        This method checks if the model exists at the specified path and loads it.
-        If the model does not exist, it downloads the Swin Transformer base model, extracts
-        the first two stages, and saves it.
-        
-        Returns:
-        torch.nn.Module: The loaded or downloaded Swin Transformer first two stages.
-        """
-        if not os.path.exists(self.model_path):
-            # Get the Swin Transformer base model
-            swin_transformer_base = swin_transformer.swin_b(weights="IMAGENET1K_V1")
-            # Extract the first two stages of the model
-            swin_first_2_stages = torch.nn.Sequential(*list(swin_transformer_base.features)[:4])
-            
-            # Ensure the directory exists
-            model_dir = os.path.dirname(self.model_path)
-            if not os.path.exists(model_dir):
-                os.makedirs(model_dir)
-                
-            # Save the modified model
-            torch.save(swin_first_2_stages, self.model_path)
-        
-        # Load the model
-        return torch.load(self.model_path)
 
     def freeze_parameters(self):
         """

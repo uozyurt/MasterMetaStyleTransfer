@@ -39,7 +39,7 @@ class custom_loss(nn.Module):
     """
     def __init__(self,
                  project_absolute_path,
-                 feature_extractor_model_relative_path="models/vgg_19_last_layer_is_relu_5_1_output.pt",
+                 feature_extractor_model_relative_path="weights/vgg_19_last_layer_is_relu_5_1_output.pt",
                  default_lambda_value=10):
         super().__init__()
 
@@ -56,7 +56,7 @@ class custom_loss(nn.Module):
             sys.path.append(project_absolute_path)
 
             # import the function to download the VGG19 model and create the cutted model
-            from codes.utils.download_VGG19_create_cutted_model_to_process import download_VGG19_and_create_cutted_model_to_process
+            from codes.utils import download_VGG19_and_create_cutted_model_to_process
 
             # create the VGG19 cutted model and save it
             download_VGG19_and_create_cutted_model_to_process(project_absolute_path,
@@ -147,6 +147,7 @@ class custom_loss(nn.Module):
         if loss_weight is None:
             loss_weight = self.lambda_value
 
+        # get the VGG features for content, style, and output images
         VGG_features_content = self.feature_extractor_model(content_image) 
         VGG_features_style = self.feature_extractor_model(style_image)
         VGG_features_output = self.feature_extractor_model(output_image)
@@ -160,8 +161,6 @@ class custom_loss(nn.Module):
         # calculate losses
         content_loss = self.get_content_loss(VGG_features_content, VGG_features_output)
         style_loss = self.get_style_loss(VGG_features_style, VGG_features_output)
-
-        print(f"Content loss: {content_loss.item():.10f}, Style loss: {style_loss.item():.10f}")
         
         # calculate total loss
         total_loss = content_loss + loss_weight * style_loss
@@ -202,7 +201,7 @@ if __name__ == "__main__":
     
     # create an instance of the custom loss class
     custom_loss_instance = custom_loss(project_absolute_path = project_absolute_path,
-                                       feature_extractor_model_relative_path="models/vgg_19_last_layer_is_relu_5_1_output.pt",
+                                       feature_extractor_model_relative_path="weights/vgg_19_last_layer_is_relu_5_1_output.pt",
                                        default_lambda_value=10)
     
 
