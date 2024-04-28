@@ -141,7 +141,7 @@ class WindowAttention(nn.Module):
             x: input features with shape of (num_windows*B, N, C)
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
         """
-        B_, N, C = x.shape
+        B_, N, C = q_input.shape
         q = self.Wq(q_input).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
         k = self.Wk(k_input).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
         v = self.Wv(v_input).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
@@ -367,7 +367,7 @@ class StyleTransformerEncoderBlock(nn.Module):
         shift_windows = shift_windows.view(-1, self.window_size * self.window_size, C)
 
         attn_windows, scale_attn_windows, shift_attn_windows = self.attn(
-            x_windows, scale_windows, shift_windows, mask=self.attn_mask)
+            x_windows, x_windows, x_windows, scale_windows, shift_windows, mask=self.attn_mask)
         
         attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
         scale_attn_windows = scale_attn_windows.view(-1, self.window_size, self.window_size, C)
@@ -411,3 +411,283 @@ class StyleTransformerEncoderBlock(nn.Module):
         shift = shift.view(B, H * W, C)
 
         return x, scale, shift
+
+class StyleTransformerDecoderBlock(nn.Module):
+    """
+    A Style Transformer Encoder Block that uses shifted window based multi-head self-attention (SW-MSA)
+    for processing style-related transformations in images. This block supports both cyclic shift and
+    standard attention mechanisms, making it suitable for a variety of spatial transformer applications.
+
+    Args:
+        dim (int): Number of input channels.
+        input_resolution (tuple[int]): Dimensions (height, width) of the input feature map.
+        num_heads (int): Number of attention heads.
+        window_size (int): Size of the attention window.
+        shift_size (int): Offset for cyclic shift within the window attention mechanism.
+        mlp_ratio (float): Expansion ratio for the MLP block compared to input channels.
+        qkv_bias (bool, optional): If True, adds a learnable bias to query, key, value projections.
+        qk_scale (float | None, optional): Custom scaling for query-key dot product.
+        drop (float, optional): Dropout rate for output projection.
+        attn_drop (float, optional): Dropout rate for attention weights.
+        act_layer (nn.Module, optional): Type of activation function to use.
+
+    Attributes:
+        attn (WindowAttention): The window-based attention mechanism.
+        mlp_x (Mlp): MLP for processing the main features.
+        mlp_scale (Mlp): MLP for processing the scale adjustments.
+        mlp_shift (Mlp): MLP for processing the shift adjustments.
+        attn_mask (torch.Tensor): Mask for attention to handle visibility between windows.
+    """
+
+    def __init__(self, dim, input_resolution, num_heads, window_size=8, shift_size=4,
+                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
+                 act_layer=nn.ReLU):
+        super().__init__()
+        self.dim = dim
+        self.input_resolution = input_resolution
+        self.num_heads = num_heads
+        self.window_size = window_size
+        self.shift_size = shift_size
+        self.mlp_ratio = mlp_ratio
+
+        # Adjust window and shift size based on input dimensions
+        if min(self.input_resolution) <= self.window_size:
+            self.shift_size = 0
+            self.window_size = min(self.input_resolution)
+        assert 0 <= self.shift_size < self.window_size, "shift_size must be in [0, window_size)"
+
+        # Attention module
+        self.self_attn = WindowAttention(
+            dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, use_ss=False,
+            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        
+        self.cross_attn = WindowAttention(
+            dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, use_ss=True,
+            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+
+        # MLP module for output
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+
+        # Instance normalization layers for content and style features
+        self.norm_content = nn.InstanceNorm2d(dim)
+        self.norm_style = nn.InstanceNorm2d(dim)
+
+        # Generate attention mask for shifted window attention if necessary
+        if self.shift_size > 0:
+            self.attn_mask = self._create_attention_mask(input_resolution)
+        else:
+            self.attn_mask = None
+
+        self.register_buffer("attn_mask", self.attn_mask)
+
+    def _create_attention_mask(self, input_resolution):
+        """
+        Creates an attention mask for the shifted window attention mechanism.
+        This mask helps in differentiating the shifted window positions during self-attention.
+
+        Args:
+            input_resolution (tuple): The dimensions of the input feature map (height, width).
+
+        Returns:
+            torch.Tensor: The attention mask with adjustments for shift size.
+        """
+        H, W = input_resolution
+        img_mask = torch.zeros((1, H, W, 1))
+        # Define slices for different regions of the image
+        h_slices = (slice(0, -self.window_size),
+                    slice(-self.window_size, -self.shift_size),
+                    slice(-self.shift_size, None))
+        w_slices = (slice(0, -self.window_size),
+                    slice(-self.window_size, -self.shift_size),
+                    slice(-self.shift_size, None))
+        cnt = 0
+        for h in h_slices:
+            for w in w_slices:
+                img_mask[:, h, w, :] = cnt
+                cnt += 1
+
+        # Window partitioning and attention mask generation
+        mask_windows = window_partition(img_mask, self.window_size)
+        mask_windows = mask_windows.view(-1, self.window_size * self.window_size)
+        attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
+        attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0))
+        attn_mask = attn_mask.masked_fill(attn_mask == 0, float(0.0))
+        return attn_mask
+
+    def forward(self, content, style, scale, shift):
+        """
+        Forward pass of the StyleTransformerEncoderBlock.
+
+        Args:
+            content (torch.Tensor): Content features (B, H*W, C).
+            style (torch.Tensor): Style features (B, H*W, C).
+            scale (torch.Tensor): Scale features (B, H*W, C).
+            shift (torch.Tensor): Shift features (B, H*W, C).
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Updated content-style features.
+        """
+        H, W = self.input_resolution
+        B, L, C = content.shape
+        assert L == H * W, "input feature has wrong size"
+        # Convert flat feature maps to spatial maps
+        shortcut_content = content
+
+        content = content.view(B, H, W, C)
+        style = style.view(B, H, W, C)
+        scale = scale.view(B, H, W, C)
+        shift = shift.view(B, H, W, C)
+
+        # Apply cyclic shift for self attention
+        if self.shift_size > 0:
+            content, _, _, _ = self._apply_cyclic_shift(content, cross=False)
+
+        # Partition content windows and process through attention
+        content, _, _ = self._process_windows(content, C, cross=False)
+
+        # Reverse cyclic shift and merge windows
+        content, _, _ = self._reverse_cyclic_shift(content, H, W, B, C, cross=False)
+
+        # Apply residual connection
+        content = content + shortcut_content # F' = F + MHA(F)
+
+        # Apply instance normalizations
+        content_norm = self.norm_content(content)
+        style_norm = self.norm_style(style)
+
+        # Apply cyclic shift for cross attention
+        if self.shift_size > 0:
+            content_norm, style_norm, scale, shift = self._apply_cyclic_shift(content_norm, cross=True, style=style_norm, scale=scale, shift=shift)
+
+        # Partition content windows and process through attention
+        content_norm, scale, shift = self._process_windows(content_norm, C, cross=True, style=style_norm, scale=scale, shift=shift)
+
+        # Reverse cyclic shift and merge windows
+        content_norm, scale, shift = self._reverse_cyclic_shift(content_norm, H, W, B, C, cross=True, scale_attn_windows=scale, shift_attn_windows=shift)
+
+        # Apply scale and shift transformations to content (scale dot content + shift)
+        content = content * scale + shift #F'' = F' * S + M
+
+        # Apply MLP and residual connections to output
+        content = self.mlp(content) + content #F = MLP(F'') + F''
+
+        return content
+
+    def _apply_cyclic_shift(self, content, cross=False, style=None, scale=None, shift=None):
+        """
+        Applies a cyclic shift to the feature maps to enable cross-window connectivity.
+
+        Args:
+            content (torch.Tensor): Spatial feature map (B, H, W, C).
+            style (torch.Tensor): Style feature map (B, H, W, C).
+            scale (torch.Tensor): Scale feature map (B, H, W, C).
+            shift (torch.Tensor): Shift feature map (B, H, W, C).
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: Shifted feature maps.
+        """
+        shifted_content = torch.roll(content, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+
+        if cross:
+            shifted_style = torch.roll(style, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            shifted_scale = torch.roll(scale, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            shifted_shift = torch.roll(shift, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+        else:
+            shifted_style = None
+            shifted_scale = None
+            shifted_shift = None
+
+        return shifted_content, shifted_style, shifted_scale, shifted_shift
+
+    def _process_windows(self, content, C, cross=False, style=None, scale=None, shift=None):
+        """
+        Processes the feature maps through window partitioning, attention mechanism,
+        and MLPs for each component (main, scale, shift).
+
+        Args:
+            content (torch.Tensor): Shifted spatial feature map (B, H, W, C).
+            style (torch.Tensor): Shifted style feature map (B, H, W, C).
+            scale (torch.Tensor): Shifted scale feature map (B, H, W, C).
+            shift (torch.Tensor): Shifted shift feature map (B, H, W, C).
+            C (int): Number of dimensions in the input feature maps.
+            cross (bool): If True, applies cross-attention instead of self-attention.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Window-processed feature maps.
+        """
+        # Partition feature maps into windows
+        content_windows = window_partition(content, self.window_size)  # nW*B, window_size, window_size, C
+        if cross:
+            style_windows = window_partition(style, self.window_size)  # nW*B, window_size, window_size, C
+            scale_windows = window_partition(scale, self.window_size)  # nW*B, window_size, window_size, C
+            shift_windows = window_partition(shift, self.window_size)  # nW*B, window_size, window_size, C
+
+        # Flatten and process through attention
+        content_windows = content_windows.view(-1, self.window_size * self.window_size, C)
+        if cross:
+            style_windows = style_windows.view(-1, self.window_size * self.window_size, C)
+            scale_windows = scale_windows.view(-1, self.window_size * self.window_size, C)
+            shift_windows = shift_windows.view(-1, self.window_size * self.window_size, C)
+
+        if cross:
+            attn_windows, scale_attn_windows, shift_attn_windows = self.cross_attn(
+                content_windows, style_windows, content_windows, scale_windows,
+                  shift_windows, mask=self.attn_mask)
+        else:
+            attn_windows, _, _ = self.self_attn(
+                content_windows, content_windows, content_windows, mask=self.attn_mask)
+
+        attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
+        if cross:
+            scale_attn_windows = scale_attn_windows.view(-1, self.window_size, self.window_size, C)
+            shift_attn_windows = shift_attn_windows.view(-1, self.window_size, self.window_size, C)
+        else:
+            scale_attn_windows = None
+            shift_attn_windows = None
+
+        return attn_windows, scale_attn_windows, shift_attn_windows
+
+    def _reverse_cyclic_shift(self, attn_windows, H, W, B, C, cross=False, scale_attn_windows=None, shift_attn_windows=None):
+        """
+        Reverses the cyclic shift applied earlier and merges the windows back into full feature maps.
+
+        Args:
+            attn_windows (torch.Tensor): Attended feature windows (nW*B, window_size, window_size, C).
+            scale_attn_windows (torch.Tensor): Attended scale windows (nW*B, window_size, window_size, C).
+            shift_attn_windows (torch.Tensor): Attended shift windows (nW*B, window_size, window_size, C).
+            H (int): Height of the input feature map.
+            W (int): Width of the input feature map.
+            B (int): Batch size.
+            C (int): Number of channels.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Reversed and merged feature maps.
+        """
+        # Reverse cyclic shift and merge windows back to feature maps
+        if self.shift_size > 0:
+            shifted_content = window_reverse(attn_windows, self.window_size, H, W)  # B H' W' C
+            content = torch.roll(shifted_content, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+
+            if cross:
+                shifted_scale = window_reverse(scale_attn_windows, self.window_size, H, W)  # B H' W' C
+                scale = torch.roll(shifted_scale, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+
+                shifted_shift = window_reverse(shift_attn_windows, self.window_size, H, W)  # B H' W' C
+                shift = torch.roll(shifted_shift, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+        else:
+            content = window_reverse(attn_windows, self.window_size, H, W)
+
+            if cross:
+                scale = window_reverse(scale_attn_windows, self.window_size, H, W)
+                shift = window_reverse(shift_attn_windows, self.window_size, H, W)
+
+        content = content.view(B, H * W, C)
+        if cross:
+            scale = scale.view(B, H * W, C)
+            shift = shift.view(B, H * W, C)
+        else:
+            scale = None
+            shift = None
+
+        return content, scale, shift
