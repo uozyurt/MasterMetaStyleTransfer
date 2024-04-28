@@ -113,7 +113,9 @@ class WindowAttention(nn.Module):
         self.register_buffer("relative_position_index", relative_position_index)
 
         # Layers for queries and keys (shared by K) and separate value layers for K, scale, shift
-        self.qkv = nn.Linear(dim, 3 * dim, bias=qkv_bias)
+        self.Wq = nn.Linear(dim, dim, bias=qkv_bias)
+        self.Wk = nn.Linear(dim, dim, bias=qkv_bias)
+        self.Wv = nn.Linear(dim, dim, bias=qkv_bias)
 
         if self.use_ss:
             self.v_scale = nn.Linear(dim, dim, bias=qkv_bias)
@@ -133,15 +135,16 @@ class WindowAttention(nn.Module):
         trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, scale=None, shift=None, mask=None):
+    def forward(self, q_input, k_input, v_input, scale=None, shift=None, mask=None):
         """
         Args:
             x: input features with shape of (num_windows*B, N, C)
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
         """
         B_, N, C = x.shape
-        qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
+        q = self.Wq(q_input).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+        k = self.Wk(k_input).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+        v = self.Wv(v_input).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
 
         if self.use_ss:
             v_scale = self.v_scale(scale).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
