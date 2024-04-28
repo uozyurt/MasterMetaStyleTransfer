@@ -58,8 +58,8 @@ class StyleDecoder(nn.Module):
     by Huang and Belongie. It consists of multiple upsampling and convolution layers to gradually upscale the feature map
     to the target resolution, interspersed with ReLU activation functions to introduce non-linearities.
 
-    Reference:
-    Huang, X., & Belongie, S. (2017). Arbitrary Style Transfer in Real-time with Adaptive Instance Normalization.
+    References:
+    - Huang, X., & Belongie, S. (2017). Arbitrary Style Transfer in Real-time with Adaptive Instance Normalization.
     In Proceedings of the IEEE International Conference on Computer Vision (pp. 1501-1510).
     """
 
@@ -121,6 +121,10 @@ class SwinEncoder(torch.nn.Module):
         Args:
         model_path (str, optional): Path where the Swin model is saved or should be saved. Defaults to '../ckpt/swin_B_first_2_stages.pt'.
         freeze_params (bool): If True, the parameters of the model will be frozen.
+
+        References:
+        - Liu, Ze, et al. "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows." arXiv preprint arXiv:2103.14030 (2021). https://arxiv.org/abs/2103.14030
+        - Official PyTorch Vision documentation for Swin Transformers: https://pytorch.org/vision/stable/models.html#torchvision.models.swin_transformer
         """
         super().__init__()
         if model_path is None:
