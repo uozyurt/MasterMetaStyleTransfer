@@ -1,9 +1,8 @@
 import torch
 import torch.utils
 import torch.utils.data
-import torchvision
-from torch.utils.data import Dataset, DataLoader, Sampler
-from torchvision import datasets, transforms
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
 import cv2
 import glob
 import os
@@ -18,9 +17,11 @@ transform = transforms.Compose([
 
 class coco_train_dataset(Dataset):
     # initialize the dataset
-    def __init__(self, project_absolute_path, coco_dataset_relative_path = "datasets/coco_train_dataset_small"):
+    def __init__(self, project_absolute_path, coco_dataset_relative_path = "datasets/coco_train_dataset/train2017"):
         # get the absolute path of the dataset
         dataset_ablsolute_path = os.path.join(project_absolute_path, coco_dataset_relative_path)
+
+        print(dataset_ablsolute_path)
 
         # load coco dataset paths from local directory
         self.coco_dataset_images_paths = glob.glob(os.path.join(dataset_ablsolute_path, "*.jpg"))
@@ -41,10 +42,10 @@ class coco_train_dataset(Dataset):
     
 class wikiart_dataset(Dataset):
     # initialize the dataset
-    def __init__(self, project_absolute_path, wikiart_dataset_relative_path = "datasets/wikiart_small"):
+    def __init__(self, project_absolute_path, wikiart_dataset_relative_path = "datasets/wikiart/**"):
         # get the absolute path of the dataset
-        dataset_ablsolute_path = os.path.join(project_absolute_path, coco_dataset_relative_path)
-
+        dataset_ablsolute_path = os.path.abspath(os.path.join(project_absolute_path, wikiart_dataset_relative_path))
+        
         # load wikiart dataset paths from local directory
         self.wikiart_dataset_images_paths = glob.glob(os.path.join(dataset_ablsolute_path, "*.jpg"))
 
@@ -68,21 +69,25 @@ if __name__ == "__main__":
     project_absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
     # get the relative paths of the datasets
-    coco_dataset_relative_path = "datasets/coco_train_dataset_small"
-    wikiart_dataset_relative_path = "datasets/wikiart_small"
+    coco_dataset_relative_path = "datasets/coco_train_dataset/train2017"
+    wikiart_dataset_relative_path = "datasets/wikiart/**"
 
     # create the datasets
     coco_dataset_instance = coco_train_dataset(project_absolute_path = project_absolute_path,
-                                    coco_dataset_relative_path = coco_dataset_relative_path)
+                                                coco_dataset_relative_path = coco_dataset_relative_path)
 
     wikiart_dataset_instance = wikiart_dataset(project_absolute_path = project_absolute_path,
-                                    wikiart_dataset_relative_path = wikiart_dataset_relative_path)
+                                                wikiart_dataset_relative_path = wikiart_dataset_relative_path)
+    
+    print(f"Number of images in COCO dataset: {len(coco_dataset_instance)}")
+    print(f"Number of images in Wikiart dataset: {len(wikiart_dataset_instance)}")
+
 
     # determine the batch size
     BATCH_SIZE_coco = 4
-    BATCH_SIZE_wikiart = 4
+    BATCH_SIZE_wikiart = 1
 
-    # determine the number of workers
+    # determine the number of workerss
     NUM_WORKERS_coco = 4
     NUM_WORKERS_wikiart = 4
 
