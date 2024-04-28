@@ -51,7 +51,7 @@ class StyleTransformer(nn.Module):
         return content
 
 
-class Decoder(nn.Module):
+class StyleDecoder(nn.Module):
     """
     StyleTransferDecoder constructs the image from encoded features using upsampling and convolution layers.
     The design follows the architecture described in "Arbitrary Style Transfer in Real-time with Adaptive Instance Normalization"
@@ -111,3 +111,71 @@ class Decoder(nn.Module):
             torch.Tensor: Output tensor of the stylized image.
         """
         return self.decoder(x)
+
+
+class SwinEncoder(torch.nn.Module):
+    def __init__(self, model_path=None, freeze_params=False):
+        """
+        Initializes the SwinEncoder object which uses the first two stages of the Swin Transformer.
+
+        Args:
+        model_path (str, optional): Path where the Swin model is saved or should be saved. Defaults to '../ckpt/swin_B_first_2_stages.pt'.
+        freeze_params (bool): If True, the parameters of the model will be frozen.
+        """
+        super().__init__()
+        if model_path is None:
+            # Resolve the default path to be '../ckpt/swin_B_first_2_stages.pt' relative to the script's location
+            script_directory = os.path.dirname(__file__)
+            default_directory = os.path.abspath(os.path.join(script_directory, '..', 'ckpt'))
+            model_path = os.path.join(default_directory, 'swin_B_first_2_stages.pt')
+        
+        self.model_path = model_path
+        self.model = self.load_or_download_model()
+        if freeze_params:
+            self.freeze_parameters()
+
+    def load_or_download_model(self):
+        """
+        This method checks if the model exists at the specified path and loads it.
+        If the model does not exist, it downloads the Swin Transformer base model, extracts
+        the first two stages, and saves it.
+        
+        Returns:
+        torch.nn.Module: The loaded or downloaded Swin Transformer first two stages.
+        """
+        if not os.path.exists(self.model_path):
+            # Get the Swin Transformer base model
+            swin_transformer_base = swin_transformer.swin_b(weights="IMAGENET1K_V1")
+            # Extract the first two stages of the model
+            swin_first_2_stages = torch.nn.Sequential(*list(swin_transformer_base.features)[:4])
+            
+            # Ensure the directory exists
+            model_dir = os.path.dirname(self.model_path)
+            if not os.path.exists(model_dir):
+                os.makedirs(model_dir)
+                
+            # Save the modified model
+            torch.save(swin_first_2_stages, self.model_path)
+        
+        # Load the model
+        return torch.load(self.model_path)
+
+    def freeze_parameters(self):
+        """
+        This method sets the requires_grad attribute of all parameters in the model to False,
+        effectively freezing the model to prevent any of its weights from being updated.
+        """
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+    def forward(self, x):
+        """
+        Forward pass through the first two stages of the Swin Transformer.
+
+        Args:
+        x (torch.Tensor): Input tensor to be passed through the model.
+
+        Returns:
+        torch.Tensor: Output tensor from the model.
+        """
+        return self.model(x)
