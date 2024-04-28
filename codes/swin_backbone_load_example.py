@@ -4,7 +4,6 @@ if(__name__ == "__main__"):
     import torch
     import cv2
     import matplotlib.pyplot as plt
-
     project_absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
     # add the project path to the system path
