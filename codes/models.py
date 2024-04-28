@@ -67,35 +67,37 @@ class Decoder(nn.Module):
         super().__init__()
 
         self.decoder = nn.Sequential(
-            nn.ReflectionPad2d((1, 1, 1, 1)),
-            nn.Conv2d(256, 128, (3, 3)),
+            nn.Conv2d(256, 128, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
+
             nn.Upsample(scale_factor=2, mode='nearest'),
-            nn.ReflectionPad2d((1, 1, 1, 1)),
-            nn.Conv2d(128, 128, (3, 3)),
+
+            nn.Conv2d(128, 128, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
-            nn.ReflectionPad2d((1, 1, 1, 1)),
-            nn.Conv2d(128, 128, (3, 3)),
+
+            nn.Conv2d(128, 128, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
-            nn.ReflectionPad2d((1, 1, 1, 1)),
-            nn.Conv2d(128, 128, (3, 3)),
+
+            nn.Conv2d(128, 128, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
-            nn.ReflectionPad2d((1, 1, 1, 1)),
-            nn.Conv2d(128, 64, (3, 3)),
+
+            nn.Conv2d(128, 64, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
+
             nn.Upsample(scale_factor=2, mode='nearest'),
-            nn.ReflectionPad2d((1, 1, 1, 1)),
-            nn.Conv2d(64, 64, (3, 3)),
+
+            nn.Conv2d(64, 64, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
-            nn.ReflectionPad2d((1, 1, 1, 1)),
-            nn.Conv2d(64, 32, (3, 3)),
+
+            nn.Conv2d(64, 32, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
+            
             nn.Upsample(scale_factor=2, mode='nearest'),
-            nn.ReflectionPad2d((1, 1, 1, 1)),
-            nn.Conv2d(32, 32, (3, 3)),
+
+            nn.Conv2d(32, 32, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
-            nn.ReflectionPad2d((1, 1, 1, 1)),
-            nn.Conv2d(32, 3, (3, 3)),
+
+            nn.Conv2d(32, 3, (3, 3), padding=(1, 1), padding_mode='reflect'),
         )
 
     def forward(self, x):
