@@ -58,9 +58,6 @@ class Decoder(nn.Module):
     by Huang and Belongie. It consists of multiple upsampling and convolution layers to gradually upscale the feature map
     to the target resolution, interspersed with ReLU activation functions to introduce non-linearities.
 
-    This decoder architecture is particularly effective for style transfer, as it allows for high flexibility in manipulating
-    the style and content features, and then reassembling them into the stylized output.
-
     Reference:
     Huang, X., & Belongie, S. (2017). Arbitrary Style Transfer in Real-time with Adaptive Instance Normalization.
     In Proceedings of the IEEE International Conference on Computer Vision (pp. 1501-1510).
