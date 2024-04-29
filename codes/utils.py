@@ -1,8 +1,9 @@
-from torch.nn import Sequential
-from torch import save
 import os
+from torch import save
+from torch.nn import Sequential
+from torch.nn.functional import cosine_similarity
 
-# import swin transformer from torchvision
+# import swin transformer and vgg19 from torchvision
 from torchvision.models import swin_transformer, vgg19, VGG19_Weights
 
 
@@ -67,6 +68,36 @@ def download_swin_and_create_cutted_model(absolute_project_path,
                 # save the model
                 save(swin_B_first_2_stages, os.path.join(absolute_project_path, model_save_absolute_path))
 
+
+def get_scaled_self_cosine_distance_map(A, eps=1e-6):
+        """
+        This function takes a tensor and calculates the spatial-wise self cosine similarity, scaling the values columns with column sums.
+        It is used to calculate the similarity loss in the paper.
+
+        input:
+                A: tensor of shape B x C x H x W
+
+        output:
+                tensor of shape B x C x H x W
+        """
+
+        # flatten the HxW dimensions to get B x C x N from B x C x H x W
+        A_flat = A.view(A.size(0), A.size(1), -1)
+
+        # permute the tensor to get B x N x C
+        A_flat_permuted = A_flat.permute(0, 2, 1)
+
+        # compute the spatial-wise self cosine similarity (it will be used to calculate D^x_{c,ij} and D^x_{cs,ij} in the paper containing all i and j values)
+        self_cos_sim = cosine_similarity(A_flat_permuted.unsqueeze(1), A_flat_permuted.unsqueeze(2), dim=3)
+
+        # sum the columns to get the column sums (it will be used to calculate  SUM FOR ALL K -> [D^x_{c,kj}]  and  SUM FOR ALL K -> [D^x_{cs,kj}]  in the paper, containing all j values)
+        self_cos_sim_sum = self_cos_sim.sum(dim=1) + eps # add epsilon to avoid division by zero
+
+        # divide the columns with the column sums (it will be used to calculate   D^x_{c,ij} / SUM FOR ALL K -> [D^x_{c,kj}]   and   D^x_{cs,ij} / SUM FOR ALL K -> [D^x_{cs,kj}]   in the paper containing all i and j values)
+        self_cos_sim_scaled = self_cos_sim / self_cos_sim_sum.unsqueeze(1)
+
+        # return the scaled self cosine similarity
+        return self_cos_sim_scaled
 
 
 if(__name__ == "__main__"):
