@@ -69,9 +69,9 @@ def download_swin_and_create_cutted_model(absolute_project_path,
                 save(swin_B_first_2_stages, os.path.join(absolute_project_path, model_save_absolute_path))
 
 
-def get_scaled_self_cosine_distance_map(A, eps=1e-6):
+def get_scaled_self_cosine_distance_map_lower_triangle(A, eps=1e-6):
         """
-        This function takes a tensor and calculates the spatial-wise self cosine similarity, scaling the values columns with column sums.
+        This function takes a tensor and calculates the spatial-wise self cosine similarity, scaling the values columns with column sums, leabing the lower triangle of the matrix.
         It is used to calculate the similarity loss in the paper.
 
         input:
@@ -96,8 +96,8 @@ def get_scaled_self_cosine_distance_map(A, eps=1e-6):
         # divide the columns with the column sums (it will be used to calculate   D^x_{c,ij} / SUM FOR ALL K -> [D^x_{c,kj}]   and   D^x_{cs,ij} / SUM FOR ALL K -> [D^x_{cs,kj}]   in the paper containing all i and j values)
         self_cos_sim_scaled = self_cos_sim / self_cos_sim_sum.unsqueeze(1)
 
-        # return the scaled self cosine similarity
-        return self_cos_sim_scaled
+        # return the scaled self cosine similarity, leaving the lower triangle of the matrix
+        return self_cos_sim_scaled.tril(diagonal=-1)
 
 
 if(__name__ == "__main__"):
