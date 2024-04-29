@@ -234,14 +234,31 @@ class custom_loss(nn.Module):
         # get the scaled self cosine distance map for the content and output images
         scaled_self_cosine_distance_map_content_relu_4_1 = get_scaled_self_cosine_distance_map(VGG_features_content[0])
         scaled_self_cosine_distance_map_output_relu_4_1 = get_scaled_self_cosine_distance_map(VGG_features_output[0])
-
         scaled_self_cosine_distance_map_content_relu_5_1 = get_scaled_self_cosine_distance_map(VGG_features_content[1])
         scaled_self_cosine_distance_map_output_relu_5_1 = get_scaled_self_cosine_distance_map(VGG_features_output[1])
 
 
+        # contsruct the mask to get the lower triangular part of the matrix
+        mask_relu_4_1 = torch.tril(torch.ones(1, scaled_self_cosine_distance_map_output_relu_4_1.shape[-1], scaled_self_cosine_distance_map_output_relu_4_1.shape[-1]), diagonal=-1)
+        mask_relu_5_1 = torch.tril(torch.ones(1, scaled_self_cosine_distance_map_output_relu_5_1.shape[-1], scaled_self_cosine_distance_map_output_relu_5_1.shape[-1]), diagonal=-1)
+
+        # get the absolute difference between the two matrices
+        abs_dif_self_cos_maps_relu_4_1 = torch.abs(torch.sub(scaled_self_cosine_distance_map_content_relu_4_1, scaled_self_cosine_distance_map_output_relu_4_1))
+        abs_dif_self_cos_maps_relu_5_1 = torch.abs(torch.sub(scaled_self_cosine_distance_map_content_relu_5_1, scaled_self_cosine_distance_map_output_relu_5_1))
+
+        # apply mask to the absolute difference to get the lower triangular part
+        lower_tri_abs_dif_self_cos_maps_relu_4_1 = abs_dif_self_cos_maps_relu_4_1 * mask_relu_4_1
+        lower_tri_abs_dif_self_cos_maps_relu_5_1 = abs_dif_self_cos_maps_relu_5_1 * mask_relu_5_1
+
+
+
+        # get the sum of the lower triangular parts and scale with the number of elements and batch size
+        similarity_loss_relu_4_1 = torch.sum(lower_tri_abs_dif_self_cos_maps_relu_4_1) / (scaled_self_cosine_distance_map_output_relu_4_1.shape[-1] * scaled_self_cosine_distance_map_output_relu_4_1.shape[0])
+        similarity_loss_relu_5_1 = torch.sum(lower_tri_abs_dif_self_cos_maps_relu_5_1) / (scaled_self_cosine_distance_map_output_relu_5_1.shape[-1] * scaled_self_cosine_distance_map_output_relu_5_1.shape[0])
+
+
         # calculate the similarity loss, dividing with {n_{x}}^{2}, as well as batch sizes
-        similarity_loss = torch.sum(torch.abs(torch.sub(scaled_self_cosine_distance_map_content_relu_4_1, scaled_self_cosine_distance_map_output_relu_4_1))) / (scaled_self_cosine_distance_map_content_relu_4_1.shape[0] * scaled_self_cosine_distance_map_content_relu_4_1.shape[1]) + \
-                          torch.sum(torch.abs(torch.sub(scaled_self_cosine_distance_map_content_relu_5_1, scaled_self_cosine_distance_map_output_relu_5_1))) / (scaled_self_cosine_distance_map_content_relu_5_1.shape[0] * scaled_self_cosine_distance_map_content_relu_5_1.shape[1])
+        similarity_loss = similarity_loss_relu_4_1 + similarity_loss_relu_5_1
 
 
         return similarity_loss
