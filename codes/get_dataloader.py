@@ -41,6 +41,9 @@ class coco_train_dataset(Dataset):
         # load image
         img = cv2.imread(self.coco_dataset_images_paths[id])
 
+        # convert the image to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
         # apply transformations
         img = transform(img)
 
@@ -71,6 +74,9 @@ class wikiart_dataset(Dataset):
     def __getitem__(self, id):
         # load image
         img = cv2.imread(self.wikiart_dataset_images_paths[id])
+
+        # convert the image to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         # apply transformations
         img = transform(img)

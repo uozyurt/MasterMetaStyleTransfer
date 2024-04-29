@@ -196,6 +196,7 @@ if __name__ == "__main__":
     # define a function to preprocess the image
     def preprocess_image(image):
         image = cv2.resize(image, (256, 256))
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = np.transpose(image, (2, 0, 1))
         image = np.expand_dims(image, axis=0)
         image = image / 255
@@ -376,7 +377,7 @@ if __name__ == "__main__":
 
     plt.tight_layout()
 
-    
+
     # save the figure
     fig.savefig("codes/images_to_try_loss_function/losses.png")
 
