@@ -90,18 +90,22 @@ class custom_loss(nn.Module):
         """
         calculates the content loss (normalized perceptual loss in <https://arxiv.org/pdf/1603.08155>)
 
+        NOTE: Originally, in the paper cited above, the loss is scaled by W,H,C and euclidian distance is used.
+        In the master paper, the loss is ambiguous to be squared distance or euclidian distance.
+        Also, it is not explicitly mentioned that the loss is scaled by W,H,C.
+        We assumed the loss is squared distance, and scaled by B,W,H,C (by taking mean instead of sum) as it produced closed loss values reported in the paper.
+
         inputs:
         VGG_features_content: list of 4 tensors, each tensor is the output of relu 2_1, relu 3_1, relu 4_1, relu 5_1 layers from the content image
         VGG_features_output: list of 4 tensors, each tensor is the output of relu 2_1, relu 3_1, relu 4_1, relu 5_1 layers from the output image
         """
 
         # define content loss for each term
-        content_loss_each_term = lambda A1, A2, instance_norm: nn.functional.mse_loss(instance_norm(A1), instance_norm(A2))
+        content_loss_each_term = lambda A1, A2, instance_norm: torch.mean(torch.square(torch.sub(instance_norm(A1), instance_norm(A2))))
 
         # get the shapes of the tensors
         features_shape = VGG_features_content[0].shape
 
-        # TODO: Check if the instance normalizing scale is correct
         # calculate content loss for relu 2_1, relu 3_1, relu 4_1, relu 5_1 (also scaled by W,H,C, as in the mentioned paper)
         content_loss =  content_loss_each_term(VGG_features_content[0], VGG_features_output[0], nn.InstanceNorm2d(128)) + \
                         content_loss_each_term(VGG_features_content[1], VGG_features_output[1], nn.InstanceNorm2d(256)) + \
@@ -116,13 +120,19 @@ class custom_loss(nn.Module):
         """
         calculates the style loss (mean-variance loss in <https://ieeexplore.ieee.org/document/8237429>)
 
+        NOTE: Again, the loss is ambiguous to be squared distance or euclidian distance.
+        Also, it is not explicitly mentioned that the loss is scaled by B,W.
+        We assumed the loss is squared distance, and scaled by B,W (by taking mean instead of sum) as it produced closed loss values reported in the paper.
+
+
         inputs:
         VGG_features_style: list of 4 tensors, each tensor is the output of relu 2_1, relu 3_1, relu 4_1, relu 5_1 layers from the content image
         VGG_features_output: list of 4 tensors, each tensor is the output of relu 2_1, relu 3_1, relu 4_1, relu 5_1 layers from the output image
         """
 
         # define style loss for each term
-        style_loss_each_term = lambda A1, A2 : nn.functional.mse_loss(A1.mean([2,3]), A2.mean([2,3])) + nn.functional.mse_loss(A1.std([2,3]), A2.std([2,3]))
+        style_loss_each_term = lambda A1, A2 : torch.mean(torch.square(torch.sub(A1.mean([2,3]), A2.mean([2,3])))) + \
+                                               torch.mean(torch.square(torch.sub(A1.std([2,3]), A2.std([2,3]))))
 
         # get the shapes of the tensors
         features_shape = VGG_features_style[0].shape

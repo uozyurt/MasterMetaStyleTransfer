@@ -33,5 +33,7 @@ conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cud
 
 * VGG 19 is used without batchnorm (it is not declared in the paper which VGG19 is used)
 * Swin B (base) is used as the transformer model (it is also not declared) (not swin2, swin1 is used)
-* in the loss functions, the cited papers scale down the losses with C*W*H, but it is not explicit in the paper. Still, if no scaling is used, losses become too high, so we assumed it should be scaled down.
+* In the loss functions, the paper does not explicitly state if squared error or euclidean distance is used. Despite the cited papers for the loss functions use euclidean distance, we used squared error as the loss values aligned better with the paper this way.
+* Again, the paper does not explicitly state if the loss functions are scaled by the Batch Size, Channel Size, Image Height or Image Width. We take the mean of the squared distances, which scales the loss by the batch size and channel size (also by the image height and width in the content loss), as it were more plausible and the loss values aligned better with the paper this way.
+* Again, using L2 dis
 * We don't know if we should normalize the dataset images with the mean and std of the dataset. So, we did not do it.
