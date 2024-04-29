@@ -11,14 +11,14 @@ if(__name__ == "__main__"):
     sys.path.append(project_absolute_path)
 
     # import the function to download the VGG19 model and create the cutted model
-    from codes.utils.download_swin_create_custom_first_2_stages_model import download_swin_and_create_cutted_model
+    from codes.utils import download_swin_and_create_cutted_model
 
     # download the model and save it
     download_swin_and_create_cutted_model(absolute_project_path = project_absolute_path,
-                                        model_save_relative_path = "models/swin_B_first_2_stages.pt")
+                                          model_save_relative_path = "weights/swin_B_first_2_stages.pt")
     
     # load the model
-    swin_B_first_2_stages = torch.load(os.path.join(project_absolute_path, "models/swin_B_first_2_stages.pt"))
+    swin_B_first_2_stages = torch.load(os.path.join(project_absolute_path, "weights/swin_B_first_2_stages.pt"))
 
     # set the model to evaluation mode
     swin_B_first_2_stages.eval()

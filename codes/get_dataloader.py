@@ -21,10 +21,16 @@ class coco_train_dataset(Dataset):
         # get the absolute path of the dataset
         dataset_ablsolute_path = os.path.join(project_absolute_path, coco_dataset_relative_path)
 
-        print(dataset_ablsolute_path)
+        # check if the dataset exists
+        if not os.path.exists(dataset_ablsolute_path):
+            raise FileNotFoundError(f"Dataset not found at {dataset_ablsolute_path}\n\n!!!!!\nPlease download the dataset from http://images.cocodataset.org/zips/train2017.zip and extract it to the datasets directory.\n!!!!!\n")
 
         # load coco dataset paths from local directory
         self.coco_dataset_images_paths = glob.glob(os.path.join(dataset_ablsolute_path, "*.jpg"))
+
+        # check if the dataset is empty
+        if len(self.coco_dataset_images_paths) == 0:
+            raise FileNotFoundError(f"No images found in the dataset at {dataset_ablsolute_path}\n\n!!!!!\nPlease download the dataset from http://images.cocodataset.org/zips/train2017.zip and extract it to the datasets directory.\n!!!!!\n")
 
     # return the length of the dataset
     def __len__(self):
@@ -34,6 +40,9 @@ class coco_train_dataset(Dataset):
     def __getitem__(self, id):
         # load image
         img = cv2.imread(self.coco_dataset_images_paths[id])
+
+        # convert the image to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         # apply transformations
         img = transform(img)
@@ -45,9 +54,17 @@ class wikiart_dataset(Dataset):
     def __init__(self, project_absolute_path, wikiart_dataset_relative_path = "datasets/wikiart/**"):
         # get the absolute path of the dataset
         dataset_ablsolute_path = os.path.abspath(os.path.join(project_absolute_path, wikiart_dataset_relative_path))
+
+        # check if the dataset exists
+        if not os.path.exists(dataset_ablsolute_path):
+            raise FileNotFoundError(f"Dataset not found at {dataset_ablsolute_path}\n\n!!!!!\nPlease download the dataset from https://drive.google.com/file/d/1vTChp3nU5GQeLkPwotrybpUGUXj12BTK/view and extract it to the datasets directory.\n!!!!!\n")
         
         # load wikiart dataset paths from local directory
         self.wikiart_dataset_images_paths = glob.glob(os.path.join(dataset_ablsolute_path, "*.jpg"))
+
+        # check if the dataset is empty
+        if len(self.wikiart_dataset_images_paths) == 0:
+            raise FileNotFoundError(f"No images found in the dataset at {dataset_ablsolute_path}\n\n!!!!!\nPlease download the dataset from https://drive.google.com/file/d/1vTChp3nU5GQeLkPwotrybpUGUXj12BTK/view and extract it to the datasets directory.\n!!!!!\n")
 
     # return the length of the dataset
     def __len__(self):
@@ -57,6 +74,9 @@ class wikiart_dataset(Dataset):
     def __getitem__(self, id):
         # load image
         img = cv2.imread(self.wikiart_dataset_images_paths[id])
+
+        # convert the image to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         # apply transformations
         img = transform(img)
