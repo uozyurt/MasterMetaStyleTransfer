@@ -1,4 +1,4 @@
-models/
+weights/
 datasets/
 *.log
 __pycache__/
