@@ -3,7 +3,7 @@ from torch import save
 import os
 
 # import swin transformer from torchvision
-from torchvision.models import swin_transformer, vgg19
+from torchvision.models import swin_transformer, vgg19, VGG19_Weights
 
 
 def download_VGG19_and_create_cutted_model_to_process(absolute_project_path,
@@ -22,7 +22,7 @@ def download_VGG19_and_create_cutted_model_to_process(absolute_project_path,
     # if the model is not already saved, download the model and save it
     if not os.path.exists(model_save_absolute_path):
         # get the vgg19 model from torchvision
-        vgg19_original = vgg19(pretrained=True)
+        vgg19_original = vgg19(weights=VGG19_Weights.IMAGENET1K_V1)
 
         # get the model features from 0 to 30 (last layer is relu 5_1)
         vgg_19_last_layer_is_relu_5_1_output = Sequential(*list(vgg19_original.features)[0:30])
