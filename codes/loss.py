@@ -10,7 +10,7 @@ project_absolute_path_from_loss_py = os.path.abspath(os.path.join(os.path.dirnam
 sys.path.append(project_absolute_path_from_loss_py)
 
 # import the function to download the VGG19 model and create the cutted model
-from codes.utils import get_scaled_self_cosine_distance_map
+from codes.utils import get_scaled_self_cosine_distance_map_lower_triangle
 
 # define the custom VGG19 model using the original VGG19 model as input
 class VGG19_custom(nn.Module):
@@ -177,8 +177,6 @@ class custom_loss(nn.Module):
         # define content loss for each term
         content_loss_each_term = lambda A1, A2, instance_norm: torch.mean(torch.square(torch.sub(instance_norm(A1), instance_norm(A2))))
 
-        # get the shapes of the tensors
-        features_shape = VGG_features_content[0].shape
 
         # calculate content loss for relu 2_1, relu 3_1, relu 4_1, relu 5_1 (also scaled by W,H,C, as in the mentioned paper)
         content_loss =  content_loss_each_term(VGG_features_content[0], VGG_features_output[0], nn.InstanceNorm2d(128)) + \
@@ -209,7 +207,7 @@ class custom_loss(nn.Module):
                                                torch.mean(torch.square(torch.sub(A1.std([2,3]), A2.std([2,3]))))
 
 
-        # TODO: Check if the instance normalizing scale is correct
+
         # calculate style loss for relu 2_1, relu 3_1, relu 4_1, relu 5_1
         style_loss =    style_loss_each_term(VGG_features_style[0], VGG_features_output[0]) + \
                         style_loss_each_term(VGG_features_style[1], VGG_features_output[1]) + \
@@ -220,8 +218,7 @@ class custom_loss(nn.Module):
 
 
     
-
-    # TODO: Implement the other loss in the paper (similarity loss)
+    # Similarity Loss
     def get_similarity_loss(self, VGG_features_content, VGG_features_output):
         """
         calculates the similarity loss defined in the paper
@@ -232,16 +229,27 @@ class custom_loss(nn.Module):
         """
         
         # get the scaled self cosine distance map for the content and output images
-        scaled_self_cosine_distance_map_content_relu_4_1 = get_scaled_self_cosine_distance_map(VGG_features_content[0])
-        scaled_self_cosine_distance_map_output_relu_4_1 = get_scaled_self_cosine_distance_map(VGG_features_output[0])
+        scaled_self_cosine_distance_map_content_relu_4_1 = get_scaled_self_cosine_distance_map_lower_triangle(VGG_features_content[0])
+        scaled_self_cosine_distance_map_output_relu_4_1 = get_scaled_self_cosine_distance_map_lower_triangle(VGG_features_output[0])
+        scaled_self_cosine_distance_map_content_relu_5_1 = get_scaled_self_cosine_distance_map_lower_triangle(VGG_features_content[1])
+        scaled_self_cosine_distance_map_output_relu_5_1 = get_scaled_self_cosine_distance_map_lower_triangle(VGG_features_output[1])
 
-        scaled_self_cosine_distance_map_content_relu_5_1 = get_scaled_self_cosine_distance_map(VGG_features_content[1])
-        scaled_self_cosine_distance_map_output_relu_5_1 = get_scaled_self_cosine_distance_map(VGG_features_output[1])
+
+        # get the sum of absolute difference between the two matrices
+        abs_dif_self_cos_maps_relu_4_1 = torch.sum(torch.abs(torch.sub(scaled_self_cosine_distance_map_content_relu_4_1,
+                                                                       scaled_self_cosine_distance_map_output_relu_4_1)))
+        
+        abs_dif_self_cos_maps_relu_5_1 = torch.sum(torch.abs(torch.sub(scaled_self_cosine_distance_map_content_relu_5_1,
+                                                                       scaled_self_cosine_distance_map_output_relu_5_1)))
 
 
-        # calculate the similarity loss, dividing with {n_{x}}^{2}, as well as batch sizes
-        similarity_loss = torch.sum(torch.abs(torch.sub(scaled_self_cosine_distance_map_content_relu_4_1, scaled_self_cosine_distance_map_output_relu_4_1))) / (scaled_self_cosine_distance_map_content_relu_4_1.shape[0] * scaled_self_cosine_distance_map_content_relu_4_1.shape[1]) + \
-                          torch.sum(torch.abs(torch.sub(scaled_self_cosine_distance_map_content_relu_5_1, scaled_self_cosine_distance_map_output_relu_5_1))) / (scaled_self_cosine_distance_map_content_relu_5_1.shape[0] * scaled_self_cosine_distance_map_content_relu_5_1.shape[1])
+        # divide with {n_{x}}^{2}, as well as batch sizes
+        similarity_loss_relu_4_1 = abs_dif_self_cos_maps_relu_4_1 / (scaled_self_cosine_distance_map_output_relu_4_1.shape[-1] * scaled_self_cosine_distance_map_output_relu_4_1.shape[0])
+        similarity_loss_relu_5_1 = abs_dif_self_cos_maps_relu_5_1 / (scaled_self_cosine_distance_map_output_relu_5_1.shape[-1] * scaled_self_cosine_distance_map_output_relu_5_1.shape[0])
+
+
+        # calculate the similarity loss
+        similarity_loss = similarity_loss_relu_4_1 + similarity_loss_relu_5_1
 
 
         return similarity_loss
@@ -341,11 +349,11 @@ if __name__ == "__main__":
     ax[0, 2].axis("off")
 
     # to the right of the output image, add the total loss, content loss, and style loss, adding the title
-    ax[0, 2].text(300, 50, f"From figure 9, layer 1 output of the paper", fontsize=25, color="green")
-    ax[0, 2].text(300, 100, f"Total Loss: {total_loss_1_figure_9.item():.5}", fontsize=25, color="red")
-    ax[0, 2].text(300, 150, f"Content Loss: {content_loss_1_figure_9.item():.5}", fontsize=25, color="red")
-    ax[0, 2].text(300, 200, f"Style Loss: {style_loss_1_figure_9.item():.5}", fontsize=25, color="red")
-    ax[0, 2].text(300, 250, f"Similarity Loss: {similarity_loss_1_figure_9.item():.5}", fontsize=25, color="red")
+    ax[0, 2].text(300, 50, f"From figure 9, layer 1 output of the paper", fontsize=12, color="green")
+    ax[0, 2].text(300, 100, f"Total Loss: {total_loss_1_figure_9.item():.5}", fontsize=12, color="red")
+    ax[0, 2].text(300, 150, f"Content Loss: {content_loss_1_figure_9.item():.5}", fontsize=12, color="red")
+    ax[0, 2].text(300, 200, f"Style Loss: {style_loss_1_figure_9.item():.5}", fontsize=12, color="red")
+    ax[0, 2].text(300, 250, f"Similarity Loss: {similarity_loss_1_figure_9.item():.5}", fontsize=12, color="red")
 
 
 
@@ -552,4 +560,12 @@ if __name__ == "__main__":
 
         # close the figure
         plt.close(fig)
+
+        # print the losses
+        print(f"Figure-4 Column-{column_index} losses:")
+        print(f"AdaAttN: {losses_AdaAttN}")
+        print(f"Master ZS Layer 1: {losses_Master_ZS_layer1}")
+        print(f"Master ZS Layer 3: {losses_Master_ZS_layer3}")
+        print(f"Master FS: {losses_Master_FS}")
+        print("\n\n\n")
 
