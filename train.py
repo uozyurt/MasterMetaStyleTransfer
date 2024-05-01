@@ -34,10 +34,6 @@ class Train:
 
         # Paths
         self.project_root = config.project_root
-        #self.coco_dataset_path = os.path.join(self.project_root, config.coco_dataset_path)
-        #self.wikiart_dataset_path = os.path.join(self.project_root, config.wikiart_dataset_path)
-        #self.encoder_model_path = os.path.join(self.project_root, config.encoder_model_path)
-        #self.loss_model_path = os.path.join(self.project_root, config.loss_model_path)
         self.model_save_path = config.model_save_path
         self.coco_dataset_path = config.coco_dataset_path
         self.wikiart_dataset_path = config.wikiart_dataset_path
@@ -95,32 +91,19 @@ class Train:
 
         self.decoder = StyleDecoder()
 
-        # Send models to device
-        self.style_transformer.to(self.device)
-        self.swin_encoder.to(self.device)
-        self.decoder.to(self.device)
+        # Send models to device and set to train mode
+        self.style_transformer.to(self.device).train()
+        if not self.freeze_encoder:
+            self.swin_encoder = self.swin_encoder.to(self.device).train()
+        else:
+            self.swin_encoder = self.swin_encoder.to(self.device)
+        self.decoder.to(self.device).train()
 
         # Print network information
         self.print_network(self.style_transformer, 'StyleTransformer')
         self.print_network(self.swin_encoder, 'SwinEncoder')
         self.print_network(self.decoder, 'Decoder')
 
-        """        # Initialize datasets
-        coco_dataset = coco_train_dataset(project_absolute_path=self.project_root, coco_dataset_relative_path=self.coco_dataset_path)
-        wikiart_dataset = wikiart_dataset(project_absolute_path=self.project_root, wikiart_dataset_relative_path=self.wikiart_dataset_path)
-
-        # Initialize dataloaders
-        coco_dataloader = DataLoader(coco_dataset, batch_size=self.batch_size_content, shuffle=self.shuffle,
-                                    num_workers=self.num_workers, pin_memory=self.pin_memory, drop_last=self.drop_last)
-        wikiart_dataloader = DataLoader(wikiart_dataset, batch_size=self.batch_size_style, shuffle=self.shuffle,
-                                        num_workers=self.num_workers, pin_memory=self.pin_memory, drop_last=self.drop_last)"""
-
-        # Initialize optimizer here
-        if self.freeze_encoder:
-            self.parameters = list(self.style_transformer.parameters()) + list(self.decoder.parameters())
-        else:
-            self.parameters = list(self.style_transformer.parameters()) + list(self.swin_encoder.parameters()) + list(self.decoder.parameters())
-        self.optimizer = optim.Adam(self.parameters, lr=self.outer_lr)
 
         # Initialize loss function
         self.loss_function = custom_loss(self.project_root, self.loss_model_path, self.lambda_style).to(self.device)
@@ -195,28 +178,40 @@ class Train:
         wikiart_dataloader = DataLoader(wikiart_dataset(self.project_root, self.wikiart_dataset_path),
                                         batch_size=self.batch_size_style, shuffle=self.shuffle,
                                         num_workers=self.num_workers, pin_memory=self.pin_memory, drop_last=True)
+        
+        # Create a new style_transformer and decoder objects, and load the parameters
+        if not self.freeze_encoder:
+            omega_style_transformer, omega_decoder, omega_encoder = self.copy_model_to_omega()
+        else:
+            omega_style_transformer, omega_decoder = self.copy_model_to_omega()
+
+        # Set the new optimizer for inner loops
+        if not self.freeze_encoder:
+            inner_loop_optimizer = optim.Adam(list(omega_style_transformer.parameters()) + \
+                                    list(omega_decoder.parameters()) + \
+                                    list(omega_encoder.parameters()), lr=self.inner_lr)
+        else:
+            inner_loop_optimizer = optim.Adam(list(omega_style_transformer.parameters()) + list(omega_decoder.parameters()), lr=self.inner_lr)
+
+
 
         for iteration in tqdm(range(1, self.max_iterations + 1)):
             wandb.log({'iteration': iteration})
             # Sample a style image
-            style_image = next(iter(wikiart_dataloader))
-            style_image = style_image.to(self.device)
-            style_image_batch = style_image.repeat(self.batch_size_content, 1, 1, 1)
-
-
-            # Create a new style_transformer and decoder objects, and load the parameters
-            if not self.freeze_encoder:
-                omega_style_transformer, omega_decoder, omega_encoder = self.copy_model_to_omega()
+            style_image = (next(iter(wikiart_dataloader))).to(self.device)
+            if (self.batch_size_content % self.batch_size_style) == 0:
+                style_image_batch = style_image.repeat((self.batch_size_content // self.batch_size_style), 1, 1, 1)
             else:
-                omega_style_transformer, omega_decoder = self.copy_model_to_omega()
+                style_image_batch = torch.cat((style_image.repeat((self.batch_size_content // self.batch_size_style), 1, 1, 1),
+                                              style_image[:self.batch_size_content % self.batch_size_style]),
+                                              dim=0)
 
-            # Set the new optimizer for inner loops
+            # load the models parameters to omega parameters without creating a new object
+            omega_style_transformer.load_state_dict(self.style_transformer.state_dict())
+            omega_decoder.load_state_dict(self.decoder.state_dict())
             if not self.freeze_encoder:
-                inner_loop_optimizer = optim.Adam(list(omega_style_transformer.parameters()) + \
-                                       list(omega_decoder.parameters()) + \
-                                       list(omega_encoder.parameters()), lr=self.inner_lr)
-            else:
-                inner_loop_optimizer = optim.Adam(list(omega_style_transformer.parameters()) + list(omega_decoder.parameters()), lr=self.inner_lr)
+                omega_encoder.load_state_dict(self.swin_encoder.state_dict())
+
 
 
             for _ in range(self.num_inner_updates):
@@ -246,13 +241,6 @@ class Train:
                 # Compute inner loss
                 total_loss, content_loss, style_loss = self.loss_function(content_images, style_image_batch, decoded_output, output_content_and_style_loss=True)
 
-                # Print losses with their differences
-                print(f"Total loss:   {total_loss.item():.2f} diff:({total_loss.item() - total_loss_prev:.2f})")
-                print(f"Content loss: {content_loss.item():.2f} diff:({content_loss.item() - content_loss_prev:.2f})")
-                print(f"Style loss:   {style_loss.item():.2f} diff:({style_loss.item() - style_loss_prev:.2f})")
-                print()
-
-                total_loss_prev, content_loss_prev, style_loss_prev = total_loss.item(), content_loss.item(), style_loss.item()
 
                 # Log losses
                 wandb.log({'total_loss': total_loss})
