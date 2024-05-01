@@ -19,18 +19,19 @@ class coco_train_dataset(Dataset):
     # initialize the dataset
     def __init__(self, project_absolute_path, coco_dataset_relative_path = "datasets/coco_train_dataset/train2017"):
         # get the absolute path of the dataset
-        dataset_ablsolute_path = os.path.join(project_absolute_path, coco_dataset_relative_path)
+        dataset_absolute_path = os.path.join(project_absolute_path, coco_dataset_relative_path)
+
 
         # check if the dataset exists
-        if not os.path.exists(dataset_ablsolute_path):
-            raise FileNotFoundError(f"Dataset not found at {dataset_ablsolute_path}\n\n!!!!!\nPlease download the dataset from http://images.cocodataset.org/zips/train2017.zip and extract it to the datasets directory.\n!!!!!\n")
+        if not os.path.exists(dataset_absolute_path):
+            raise FileNotFoundError(f"Dataset not found at {dataset_absolute_path}")
 
         # load coco dataset paths from local directory
-        self.coco_dataset_images_paths = glob.glob(os.path.join(dataset_ablsolute_path, "*.jpg"))
+        self.coco_dataset_images_paths = glob.glob(os.path.join(dataset_absolute_path, "*.jpg"))
 
         # check if the dataset is empty
         if len(self.coco_dataset_images_paths) == 0:
-            raise FileNotFoundError(f"No images found in the dataset at {dataset_ablsolute_path}\n\n!!!!!\nPlease download the dataset from http://images.cocodataset.org/zips/train2017.zip and extract it to the datasets directory.\n!!!!!\n")
+            raise FileNotFoundError(f"No images found in the dataset at {dataset_absolute_path}\n\n!!!!!\nPlease download the dataset from http://images.cocodataset.org/zips/train2017.zip and extract it to the datasets directory.\n!!!!!\n")
 
     # return the length of the dataset
     def __len__(self):
@@ -51,20 +52,20 @@ class coco_train_dataset(Dataset):
     
 class wikiart_dataset(Dataset):
     # initialize the dataset
-    def __init__(self, project_absolute_path, wikiart_dataset_relative_path = "datasets/wikiart/**"):
+    def __init__(self, project_absolute_path, wikiart_dataset_relative_path = "datasets/wikiart/**", wikiart_dataset_relative_path2 = "datasets/wikiart"):
         # get the absolute path of the dataset
-        dataset_ablsolute_path = os.path.abspath(os.path.join(project_absolute_path, wikiart_dataset_relative_path))
-
+        dataset_absolute_path2 = os.path.abspath(os.path.join(project_absolute_path, wikiart_dataset_relative_path2))
+        dataset_absolute_path = os.path.abspath(os.path.join(project_absolute_path, wikiart_dataset_relative_path))
         # check if the dataset exists
-        if not os.path.exists(dataset_ablsolute_path):
-            raise FileNotFoundError(f"Dataset not found at {dataset_ablsolute_path}\n\n!!!!!\nPlease download the dataset from https://drive.google.com/file/d/1vTChp3nU5GQeLkPwotrybpUGUXj12BTK/view and extract it to the datasets directory.\n!!!!!\n")
+        if not os.path.exists(dataset_absolute_path2):
+            raise FileNotFoundError(f"Dataset not found at {dataset_absolute_path}\n\n!!!!!\nPlease download the dataset from https://drive.google.com/file/d/1vTChp3nU5GQeLkPwotrybpUGUXj12BTK/view and extract it to the datasets directory.\n!!!!!\n")
         
         # load wikiart dataset paths from local directory
-        self.wikiart_dataset_images_paths = glob.glob(os.path.join(dataset_ablsolute_path, "*.jpg"))
+        self.wikiart_dataset_images_paths = glob.glob(os.path.join(dataset_absolute_path, "*.jpg"))
 
         # check if the dataset is empty
         if len(self.wikiart_dataset_images_paths) == 0:
-            raise FileNotFoundError(f"No images found in the dataset at {dataset_ablsolute_path}\n\n!!!!!\nPlease download the dataset from https://drive.google.com/file/d/1vTChp3nU5GQeLkPwotrybpUGUXj12BTK/view and extract it to the datasets directory.\n!!!!!\n")
+            raise FileNotFoundError(f"No images found in the dataset at {dataset_absolute_path}\n\n!!!!!\nPlease download the dataset from https://drive.google.com/file/d/1vTChp3nU5GQeLkPwotrybpUGUXj12BTK/view and extract it to the datasets directory.\n!!!!!\n")
 
     # return the length of the dataset
     def __len__(self):

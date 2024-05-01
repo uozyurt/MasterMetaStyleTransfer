@@ -159,6 +159,7 @@ class WindowAttention(nn.Module):
         attn = attn + relative_position_bias.unsqueeze(0)
 
         if mask is not None:
+            mask = mask.to(attn.device)
             nW = mask.shape[0]
             attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(-1, self.num_heads, N, N)
@@ -170,7 +171,7 @@ class WindowAttention(nn.Module):
 
         x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
         x = self.proj_x(x)
-        x = self.proj_drop_x(x)
+        x = self.proj_x_drop(x)
 
         if self.use_ss:
             scale = (attn @ v_scale).transpose(1, 2).reshape(B_, N, C)
@@ -245,7 +246,11 @@ class StyleTransformerEncoderBlock(nn.Module):
         else:
             self.attn_mask = None
 
-        self.register_buffer("attn_mask", self.attn_mask)
+        if not hasattr(self, 'attn_mask'):
+            self.register_buffer("attn_mask", self.attn_mask)
+        else:
+            print("attn_mask already exists")
+
 
     def _create_attention_mask(self, input_resolution):
         """
@@ -485,7 +490,10 @@ class StyleTransformerDecoderBlock(nn.Module):
         else:
             self.attn_mask = None
 
-        self.register_buffer("attn_mask", self.attn_mask)
+        if not hasattr(self, 'attn_mask'):
+            self.register_buffer("attn_mask", self.attn_mask)
+        else:
+            print("attn_mask already exists")
 
     def _create_attention_mask(self, input_resolution):
         """
@@ -558,6 +566,7 @@ class StyleTransformerDecoderBlock(nn.Module):
 
         # Apply residual connection
         content = content + shortcut_content # F' = F + MHA(F)
+        content = content.view(B, H, W, C)
 
         # Apply instance normalizations
         content_norm = self.norm_content(content)
@@ -574,7 +583,7 @@ class StyleTransformerDecoderBlock(nn.Module):
         content_norm, scale, shift = self._reverse_cyclic_shift(content_norm, H, W, B, C, cross=True, scale_attn_windows=scale, shift_attn_windows=shift)
 
         # Apply scale and shift transformations to content (scale dot content + shift)
-        content = content * scale + shift #F'' = F' * S + M
+        content = (content_norm * scale) + shift #F'' = F' * S + M
 
         # Apply MLP and residual connections to output
         content = self.mlp(content) + content #F = MLP(F'') + F''

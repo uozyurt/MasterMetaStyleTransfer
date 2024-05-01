@@ -3,7 +3,7 @@ import torch.nn as nn
 import os
 import sys
 
-from layers import StyleTransformerEncoderBlock, StyleTransformerDecoderBlock
+from codes.layers import StyleTransformerEncoderBlock, StyleTransformerDecoderBlock
 
 project_absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -31,6 +31,8 @@ class StyleTransformer(nn.Module):
                  act_layer=nn.ReLU):
         super().__init__()
 
+        self.dim = dim
+        self.input_resolution = input_resolution
         self.encoder = StyleTransformerEncoderBlock(dim, input_resolution, num_heads, window_size,
                                                      shift_size, mlp_ratio, qkv_bias, qk_scale, drop, attn_drop, act_layer)
         self.decoder = StyleTransformerDecoderBlock(dim, input_resolution, num_heads, window_size,
@@ -39,13 +41,18 @@ class StyleTransformer(nn.Module):
     def forward(self, content, style, num_steps=4):
         """
         Args:
-            content (torch.Tensor): Content features of shape (B, H*W, C).
-            style (torch.Tensor): Initial style features of shape (B, H*W, C).
+            content (torch.Tensor): Content features of shape (B, H, W, C).
+            style (torch.Tensor): Initial style features of shape (B, H, W, C).
             num_steps (int): Number of transformation steps to iterate through.
 
         Returns:
             torch.Tensor: The transformed content features after T steps.
         """
+        # change the shape of style and content to (B, H*w, C) from (B, H, W, C)
+        content = content.flatten(1, 2).to(content.device)
+        style = style.flatten(1, 2).to(style.device)
+
+        # Initialize scale and shift from style
         scale = style.clone()  # Initialize scale from style
         shift = style.clone()  # Initialize shift from style
 
@@ -53,6 +60,9 @@ class StyleTransformer(nn.Module):
             style, scale, shift = self.encoder(style, scale, shift)
             content = self.decoder(content, style, scale, shift)
 
+        # change the shape of content to (B, H, W, C) from (B, H*w, C)
+        content = content.view(-1, self.input_resolution[0], self.input_resolution[1], self.dim)
+    
         return content
 
 
