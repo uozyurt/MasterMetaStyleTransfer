@@ -2,3 +2,4 @@ weights/
 datasets/
 *.log
 __pycache__/
+exps/
