@@ -160,11 +160,38 @@ class Train:
         if not self.freeze_encoder:
             torch.save(self.swin_encoder.state_dict(), swin_encoder_path)
 
+
+    # def copy_model_to_omega(self):
+    #     """Deepcopy the model parameters to omega_style_transformer, omega_decoder, and omega_encoder (if not frozen)."""
+    #     omega_style_transformer = StyleTransformer(
+    #         dim=self.dim,
+    #         input_resolution=tuple(self.input_resolution),
+    #         num_heads=self.num_heads,
+    #         window_size=self.window_size,
+    #         shift_size=self.shift_size,
+    #         mlp_ratio=self.mlp_ratio,
+    #         qkv_bias=self.qkv_bias,
+    #         qk_scale=self.qk_scale,
+    #         drop=self.drop,
+    #         attn_drop=self.attn_drop
+    #     ).to(self.device)
+    #     omega_style_transformer.load_state_dict(self.style_transformer.state_dict())
+
+    #     omega_decoder = StyleDecoder().to(self.device)
+    #     omega_decoder.load_state_dict(self.decoder.state_dict())
+
+    #     if not self.freeze_encoder:
+    #         omega_encoder = SwinEncoder(
+    #             relative_model_path=self.encoder_model_path,
+    #             freeze_params=self.freeze_encoder
+    #         ).to(self.device)
+    #         omega_encoder.load_state_dict(self.swin_encoder.state_dict())
+
+    #     return omega_style_transformer, omega_decoder, omega_encoder
+
+
     def copy_model_to_omega(self):
-        """
-        Deepcopy the model parameters to omega_style_transformer and omega_decoder, and omega_encoder (if not frozen).
-        (Obtain omega parameters from theta parameters before each inner loop.)
-        """
+        """Deepcopy the model parameters to omega_style_transformer and omega_decoder, and omega_encoder (if not frozen)."""
         omega_style_transformer = deepcopy(self.style_transformer).to(self.device).train()
         omega_decoder = deepcopy(self.decoder).to(self.device).train()
         if not self.freeze_encoder:
@@ -196,6 +223,8 @@ class Train:
                                         batch_size=self.batch_size_style, shuffle=self.shuffle,
                                         num_workers=self.num_workers, pin_memory=self.pin_memory, drop_last=True)
 
+        total_loss_prev, content_loss_prev, style_loss_prev = 0, 0, 0
+
         for iteration in tqdm(range(1, self.max_iterations + 1)):
             wandb.log({'iteration': iteration})
             # Sample a style image
@@ -204,6 +233,7 @@ class Train:
             style_image_batch = style_image.repeat(self.batch_size_content, 1, 1, 1)
 
 
+            
             # Create a new style_transformer and decoder objects, and load the parameters
             if not self.freeze_encoder:
                 omega_style_transformer, omega_decoder, omega_encoder = self.copy_model_to_omega()
@@ -211,12 +241,8 @@ class Train:
                 omega_style_transformer, omega_decoder = self.copy_model_to_omega()
 
             # Set the new optimizer for inner loops
-            if not self.freeze_encoder:
-                inner_loop_optimizer = optim.Adam(list(omega_style_transformer.parameters()) + \
-                                       list(omega_decoder.parameters()) + \
-                                       list(omega_encoder.parameters()), lr=self.inner_lr)
-            else:
-                inner_loop_optimizer = optim.Adam(list(omega_style_transformer.parameters()) + list(omega_decoder.parameters()), lr=self.inner_lr)
+            optimizer = optim.Adam(list(omega_style_transformer.parameters()) + list(omega_decoder.parameters()), lr=self.inner_lr)
+
 
 
             for _ in range(self.num_inner_updates):
@@ -259,9 +285,9 @@ class Train:
                 wandb.log({'content_loss': content_loss})
                 wandb.log({'style_loss': style_loss})
                 # Backpropagation and optimization
-                inner_loop_optimizer.zero_grad()
+                optimizer.zero_grad()
                 total_loss.backward()
-                inner_loop_optimizer.step()
+                optimizer.step()
 
 
 
