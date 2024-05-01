@@ -246,13 +246,6 @@ class Train:
                 # Compute inner loss
                 total_loss, content_loss, style_loss = self.loss_function(content_images, style_image_batch, decoded_output, output_content_and_style_loss=True)
 
-                # Print losses with their differences
-                print(f"Total loss:   {total_loss.item():.2f} diff:({total_loss.item() - total_loss_prev:.2f})")
-                print(f"Content loss: {content_loss.item():.2f} diff:({content_loss.item() - content_loss_prev:.2f})")
-                print(f"Style loss:   {style_loss.item():.2f} diff:({style_loss.item() - style_loss_prev:.2f})")
-                print()
-
-                total_loss_prev, content_loss_prev, style_loss_prev = total_loss.item(), content_loss.item(), style_loss.item()
 
                 # Log losses
                 wandb.log({'total_loss': total_loss})
