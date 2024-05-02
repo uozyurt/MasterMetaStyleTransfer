@@ -4,11 +4,12 @@ from torch.nn import Sequential
 from torch.nn.functional import cosine_similarity
 
 # import swin transformer and vgg19 from torchvision
-from torchvision.models import swin_transformer, vgg19, VGG19_Weights
+from torchvision.models import swin_transformer, vgg19, VGG19_Weights, vgg19_bn, VGG19_BN_Weights
 
 
 def download_VGG19_and_create_cutted_model_to_process(absolute_project_path,
-                                                      model_save_relative_path="weights/vgg_19_last_layer_is_relu_5_1_output.pt"):
+                                                      model_save_relative_path="weights/vgg_19_last_layer_is_relu_5_1_output.pt",
+                                                      use_vgg19_with_batchnorm=False):
     """
     Loads the VGG19 model from torchvision and saves the model with the last layer being relu 5_1.
 
@@ -20,13 +21,26 @@ def download_VGG19_and_create_cutted_model_to_process(absolute_project_path,
     # get the absolute path of the model save path
     model_save_absolute_path = os.path.join(absolute_project_path, model_save_relative_path)
 
+    if(use_vgg19_with_batchnorm):
+          # change the model save path to save the model with batchnorm
+          model_save_absolute_path = model_save_absolute_path.replace(".pt", "_bn.pt")
+
     # if the model is not already saved, download the model and save it
     if not os.path.exists(model_save_absolute_path):
-        # get the vgg19 model from torchvision
-        vgg19_original = vgg19(weights=VGG19_Weights.IMAGENET1K_V1)
+                
+        if(use_vgg19_with_batchnorm):
+                # get the vgg19 model from torchvision
+                vgg19_original = vgg19_bn(weights=VGG19_BN_Weights.IMAGENET1K_V1)
 
-        # get the model features from 0 to 30 (last layer is relu 5_1)
-        vgg_19_last_layer_is_relu_5_1_output = Sequential(*list(vgg19_original.features)[0:30])
+                # get the model features from 0 to 44 (last layer is relu 5_1)
+                vgg_19_last_layer_is_relu_5_1_output = Sequential(*list(vgg19_original.features)[0:44])
+        else:
+                # get the vgg19 model from torchvision
+                vgg19_original = vgg19(weights=VGG19_Weights.IMAGENET1K_V1)
+
+                # get the model features from 0 to 30 (last layer is relu 5_1)
+                vgg_19_last_layer_is_relu_5_1_output = Sequential(*list(vgg19_original.features)[0:30])
+                
 
         # check if model will be saved in a seperate folder, if not exist, create the folder
         if(len(model_save_relative_path.split("/")) > 1):

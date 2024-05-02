@@ -37,6 +37,36 @@ class VGG19_custom(nn.Module):
 
         # return the outputs as a list
         return [relu_2_1_output, relu_3_1_output, relu_4_1_output, relu_5_1_output]
+    
+
+# define the custom VGG19 model using the original VGG19 model with batchnorm as input 
+class VGG19_custom_with_batch_norm(nn.Module):
+    def __init__(self, features: nn.Module):
+        super().__init__()
+
+        # set the features (list of layers of the VGG19 model)
+        self.features = features
+
+    # define the forward function
+    def forward(self, x):
+        # get the output from relu 2_1
+        relu_2_1_output = self.features[:11](x)
+
+        # get the output from relu 3_1
+        relu_3_1_output = self.features[11:18](relu_2_1_output)
+
+        # get the output from relu 4_1
+        relu_4_1_output = self.features[18:31](relu_3_1_output)
+
+        # get the output from relu 5_1
+        relu_5_1_output = self.features[31:44](relu_4_1_output)
+
+        # return the outputs as a list
+        return [relu_2_1_output, relu_3_1_output, relu_4_1_output, relu_5_1_output]
+
+
+
+
 
 
 # construct the loss class
@@ -49,14 +79,20 @@ class custom_loss(nn.Module):
     def __init__(self,
                  project_absolute_path,
                  feature_extractor_model_relative_path="weights/vgg_19_last_layer_is_relu_5_1_output.pt",
-                 default_lambda_value=10):
+                 use_vgg19_with_batchnorm=False,
+                 default_lambda_value=10,):
         super().__init__()
 
         # set the lambda value
         self.lambda_value = default_lambda_value
 
+            
         # get the absolute path of the feature extractor model
         feature_extractor_model_path = os.path.join(project_absolute_path, feature_extractor_model_relative_path)
+
+        if use_vgg19_with_batchnorm:
+            # change the path to the model with batchnorm
+            feature_extractor_model_path = feature_extractor_model_path.replace(".pt", "_bn.pt")
 
         # check if the VGG19 model is created and saved
         if not os.path.exists(feature_extractor_model_path):
@@ -69,10 +105,15 @@ class custom_loss(nn.Module):
 
             # create the VGG19 cutted model and save it
             download_VGG19_and_create_cutted_model_to_process(project_absolute_path,
-                                                              feature_extractor_model_relative_path)
+                                                              feature_extractor_model_relative_path,
+                                                              use_vgg19_with_batchnorm=use_vgg19_with_batchnorm)
 
-        # load the custom VGG19 model
-        self.feature_extractor_model = VGG19_custom(torch.load(feature_extractor_model_path))
+        if use_vgg19_with_batchnorm:
+            # load the custom VGG19 model with batchnorm
+            self.feature_extractor_model = VGG19_custom_with_batch_norm(torch.load(feature_extractor_model_path))
+        else:
+            # load the custom VGG19 model without batchnorm
+            self.feature_extractor_model = VGG19_custom(torch.load(feature_extractor_model_path))
 
 
         # set the model to evaluation mode
