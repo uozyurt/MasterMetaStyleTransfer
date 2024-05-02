@@ -70,6 +70,10 @@ class Train:
         self.save_every = config.save_every
         self.max_iterations = config.max_iterations
 
+        #TODO: get it with 
+        self.init_decoder_with_he = True
+
+
         # Initialize models
         self.style_transformer = StyleTransformer(
             dim=self.dim,
@@ -91,18 +95,35 @@ class Train:
 
         self.decoder = StyleDecoder()
 
-        # Send models to device and set to train mode
-        self.style_transformer.to(self.device).train()
-        if not self.freeze_encoder:
-            self.swin_encoder = self.swin_encoder.to(self.device).train()
-        else:
-            self.swin_encoder = self.swin_encoder.to(self.device)
-        self.decoder.to(self.device).train()
+        # Send models to device
+        self.style_transformer.to(self.device)
+        self.swin_encoder = self.swin_encoder.to(self.device)
+        self.decoder.to(self.device)
 
         # # Print network information
         # self.print_network(self.style_transformer, 'StyleTransformer')
         # self.print_network(self.swin_encoder, 'SwinEncoder')
         # self.print_network(self.decoder, 'Decoder')
+
+
+
+        if(self.init_decoder_with_he):
+            # initialize the decoder with kaiming (he) uniform initialization
+            for name, param in self.decoder.named_parameters():
+                if 'weight' in name:
+                    torch.nn.init.kaiming_uniform_(param, a=0, nonlinearity='relu')
+                elif 'bias' in name:
+                    torch.nn.init.constant_(param, 0)
+
+
+
+
+
+        # set the devices to training mode
+        self.style_transformer.train()
+        self.decoder.train()
+        if not self.freeze_encoder:
+            self.swin_encoder.train()
 
 
         # Initialize loss function
