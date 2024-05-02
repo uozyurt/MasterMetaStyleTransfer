@@ -179,6 +179,11 @@ class Train:
                                         batch_size=self.batch_size_style, shuffle=self.shuffle,
                                         num_workers=self.num_workers, pin_memory=self.pin_memory, drop_last=True)
         
+        # create dataloader iterators
+        coco_iterator = iter(coco_dataloader)
+        wikiart_iterator = iter(wikiart_dataloader)
+
+        
         # Create a new style_transformer and decoder objects, and load the parameters
         if not self.freeze_encoder:
             omega_style_transformer, omega_decoder, omega_encoder = self.copy_model_to_omega()
@@ -198,7 +203,7 @@ class Train:
         for iteration in tqdm(range(1, self.max_iterations + 1)):
             wandb.log({'iteration': iteration})
             # Sample a style image
-            style_image = (next(iter(wikiart_dataloader))).to(self.device)
+            style_image = (next(wikiart_iterator)).to(self.device)
             if (self.batch_size_content % self.batch_size_style) == 0:
                 style_image_batch = style_image.repeat((self.batch_size_content // self.batch_size_style), 1, 1, 1)
             else:
@@ -216,7 +221,7 @@ class Train:
 
             for _ in range(self.num_inner_updates):
                 # Sample a batch of content images
-                content_images = next(iter(coco_dataloader))
+                content_images = next(coco_iterator)
                 content_images = content_images.to(self.device)
                 # Randomly select the number of layers to use
                 num_layers = random.randint(1, self.max_layers)
