@@ -99,10 +99,10 @@ class Train:
             self.swin_encoder = self.swin_encoder.to(self.device)
         self.decoder.to(self.device).train()
 
-        # Print network information
-        self.print_network(self.style_transformer, 'StyleTransformer')
-        self.print_network(self.swin_encoder, 'SwinEncoder')
-        self.print_network(self.decoder, 'Decoder')
+        # # Print network information
+        # self.print_network(self.style_transformer, 'StyleTransformer')
+        # self.print_network(self.swin_encoder, 'SwinEncoder')
+        # self.print_network(self.decoder, 'Decoder')
 
 
         # Initialize loss function
@@ -201,7 +201,7 @@ class Train:
 
 
         for iteration in tqdm(range(1, self.max_iterations + 1)):
-            wandb.log({'iteration': iteration})
+
             # Sample a style image
             style_image = (next(wikiart_iterator)).to(self.device)
             if (self.batch_size_content % self.batch_size_style) == 0:
@@ -245,16 +245,12 @@ class Train:
 
                 # Compute inner loss
                 total_loss, content_loss, style_loss = self.loss_function(content_images, style_image_batch, decoded_output, output_content_and_style_loss=True)
-
-
-                # Log losses
-                wandb.log({'total_loss': total_loss})
-                wandb.log({'content_loss': content_loss})
-                wandb.log({'style_loss': style_loss})
+             
                 # Backpropagation and optimization
                 inner_loop_optimizer.zero_grad()
                 total_loss.backward()
                 inner_loop_optimizer.step()
+
 
 
 
@@ -273,14 +269,30 @@ class Train:
             for name, param in self.decoder.named_parameters():
                 param.data += self.outer_lr * (omega_decoder.state_dict()[name] - param)
             
-            # Save model periodically
+
+
+
             if iteration % self.save_every == 0:
+                # Save model periodically
                 self.save_models(iteration)
 
-                # Log sample images
-                wandb.log({'content_image': [wandb.Image(content_images[0])]})
-                wandb.log({'style_image': [wandb.Image(style_image)]})
-                wandb.log({'stylized_image': [wandb.Image(decoded_output[0])]})
+                if self.use_wandb:
+                    # Log Iteration, Losses and Images
+                    wandb.log({'iteration': iteration,
+                            'total_loss': total_loss,
+                            'content_loss': content_loss,
+                            'style_loss': style_loss,
+                            'content_image': [wandb.Image(content_images[0])],
+                            'style_image': [wandb.Image(style_image)],
+                            'stylized_image': [wandb.Image(decoded_output[0])]})
+            else:
+                if self.use_wandb:
+                    # Log Iteration and Losses
+                    wandb.log({'iteration': iteration,
+                                'total_loss': total_loss,
+                                'content_loss': content_loss,
+                                'style_loss': style_loss})
+
 
 
 
