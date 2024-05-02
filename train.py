@@ -326,8 +326,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size_style', type=int, default=1, help='Batch size for the style datasets')
     parser.add_argument('--batch_size_content', type=int, default=4, help='Batch size for the content dataset')
     parser.add_argument('--num_workers', type=int, default=4, help='Number of workers for data loading')
-    parser.add_argument('--shuffle', action='store_true', help='Whether to shuffle the dataset')
-    parser.add_argument('--pin_memory', action='store_true', help='Whether to pin memory for faster data transfer to CUDA')
+    parser.add_argument('--shuffle', default=True, help='Whether to shuffle the dataset')
+    parser.add_argument('--pin_memory', default=True, help='Whether to pin memory for faster data transfer to CUDA')
 
     # Seed configuration.
     parser.add_argument('--set_seed', type=bool, default=False, help='set seed for reproducibility')
