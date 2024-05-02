@@ -2,6 +2,7 @@ import torch
 import os
 import torch.nn as nn
 import sys
+from torchvision import transforms
 
 # add the project path to the system path
 project_absolute_path_from_loss_py = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -257,7 +258,6 @@ class custom_loss(nn.Module):
 
 
 
-
 if __name__ == "__main__":
 
     import cv2
@@ -266,17 +266,22 @@ if __name__ == "__main__":
 
 
     # define a function to preprocess the image
-    def preprocess_image(image):
-        image = cv2.resize(image, (256, 256))
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = np.transpose(image, (2, 0, 1))
-        image = np.expand_dims(image, axis=0)
-        image = image / 255
-        image = torch.tensor(image, dtype=torch.float32)
-        return image
     
+    transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((256, 256)),
+        transforms.ToTensor()
+    ])
+
+    def apply_transform(image):
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        return transform(image).unsqueeze(0)
+    
+    # define the flags to output content and style loss, and similarity loss
     IF_OUTPUT_CONTENT_AND_STYLE_LOSS = True
-    IF_OUTPUT_SIMILARITY_LOSS = True
+
+    # calculating similarity loss is time consuming, so it is disabled by default for the test
+    IF_OUTPUT_SIMILARITY_LOSS = False
 
 
 
@@ -299,34 +304,67 @@ if __name__ == "__main__":
     output_image_3_figure_9_raw_image = cv2.imread(os.path.join(project_absolute_path, "codes/images_to_try_loss_function/figure9/output_layer_3.png"))
     output_image_5_figure_9_raw_image = cv2.imread(os.path.join(project_absolute_path, "codes/images_to_try_loss_function/figure9/output_layer_5.png"))
 
-    content_image_figure_9 = preprocess_image(content_image_figure_9_raw_image)
-    style_image_figure_9 = preprocess_image(style_image_figure_9_raw_image)
-    output_image_1_figure_9 = preprocess_image(output_image_1_figure_9_raw_image)
-    output_image_3_figure_9 = preprocess_image(output_image_3_figure_9_raw_image)
-    output_image_5_figure_9 = preprocess_image(output_image_5_figure_9_raw_image)
+    content_image_figure_9 = apply_transform(content_image_figure_9_raw_image)
+    style_image_figure_9 = apply_transform(style_image_figure_9_raw_image)
+    output_image_1_figure_9 = apply_transform(output_image_1_figure_9_raw_image)
+    output_image_3_figure_9 = apply_transform(output_image_3_figure_9_raw_image)
+    output_image_5_figure_9 = apply_transform(output_image_5_figure_9_raw_image)
+
 
     # calculate total loss for output_image_1
-    total_loss_1_figure_9, content_loss_1_figure_9, style_loss_1_figure_9, similarity_loss_1_figure_9 = custom_loss_instance(content_image_figure_9,
-                                                                                                 style_image_figure_9,
-                                                                                                 output_image_1_figure_9,
-                                                                                                 output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
-                                                                                                 output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+    losses_1_figure_9 = custom_loss_instance(content_image_figure_9,
+                                            style_image_figure_9,
+                                            output_image_1_figure_9,
+                                            output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
+                                            output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
 
+    if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+        if IF_OUTPUT_SIMILARITY_LOSS:
+            total_loss_1_figure_9, content_loss_1_figure_9, style_loss_1_figure_9, similarity_loss_1_figure_9 = losses_1_figure_9
+        else:
+            total_loss_1_figure_9, content_loss_1_figure_9, style_loss_1_figure_9 = losses_1_figure_9
+    else:
+        if IF_OUTPUT_SIMILARITY_LOSS:
+            total_loss_1_figure_9, similarity_loss_1_figure_9 = losses_1_figure_9
+        else:
+            total_loss_1_figure_9 = losses_1_figure_9
 
     # calculate total loss for output_image_3
-    total_loss_3_figure_9, content_loss_3_figure_9, style_loss_3_figure_9, similarity_loss_3_figure_9 = custom_loss_instance(content_image_figure_9,
-                                                                                                 style_image_figure_9,
-                                                                                                 output_image_3_figure_9,
-                                                                                                 output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
-                                                                                                 output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+    losses_3_figure_9 = custom_loss_instance(content_image_figure_9,
+                                            style_image_figure_9,
+                                            output_image_3_figure_9,
+                                            output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
+                                            output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+    
+    if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+        if IF_OUTPUT_SIMILARITY_LOSS:
+            total_loss_3_figure_9, content_loss_3_figure_9, style_loss_3_figure_9, similarity_loss_3_figure_9 = losses_3_figure_9
+        else:
+            total_loss_3_figure_9, content_loss_3_figure_9, style_loss_3_figure_9 = losses_3_figure_9
+    else:
+        if IF_OUTPUT_SIMILARITY_LOSS:
+            total_loss_3_figure_9, similarity_loss_3_figure_9 = losses_3_figure_9
+        else:
+            total_loss_3_figure_9 = losses_3_figure_9
 
 
     # calculate total loss for output_image_5
-    total_loss_5_figure_9, content_loss_5_figure_9, style_loss_5_figure_9, similarity_loss_5_figure_9 = custom_loss_instance(content_image_figure_9,
-                                                                                                 style_image_figure_9,
-                                                                                                 output_image_5_figure_9,
-                                                                                                 output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
-                                                                                                 output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+    losses_5_figure_9 = custom_loss_instance(content_image_figure_9,
+                                            style_image_figure_9,
+                                            output_image_5_figure_9,
+                                            output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
+                                            output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+    
+    if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+        if IF_OUTPUT_SIMILARITY_LOSS:
+            total_loss_5_figure_9, content_loss_5_figure_9, style_loss_5_figure_9, similarity_loss_5_figure_9 = losses_5_figure_9
+        else:
+            total_loss_5_figure_9, content_loss_5_figure_9, style_loss_5_figure_9 = losses_5_figure_9
+    else:
+        if IF_OUTPUT_SIMILARITY_LOSS:
+            total_loss_5_figure_9, similarity_loss_5_figure_9 = losses_5_figure_9
+        else:
+            total_loss_5_figure_9 = losses_5_figure_9
 
 
 
@@ -351,9 +389,13 @@ if __name__ == "__main__":
     # to the right of the output image, add the total loss, content loss, and style loss, adding the title
     ax[0, 2].text(300, 50, f"From figure 9, layer 1 output of the paper", fontsize=12, color="green")
     ax[0, 2].text(300, 100, f"Total Loss: {total_loss_1_figure_9.item():.5}", fontsize=12, color="red")
-    ax[0, 2].text(300, 150, f"Content Loss: {content_loss_1_figure_9.item():.5}", fontsize=12, color="red")
-    ax[0, 2].text(300, 200, f"Style Loss: {style_loss_1_figure_9.item():.5}", fontsize=12, color="red")
-    ax[0, 2].text(300, 250, f"Similarity Loss: {similarity_loss_1_figure_9.item():.5}", fontsize=12, color="red")
+    if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+        ax[0, 2].text(300, 150, f"Content Loss: {content_loss_1_figure_9.item():.5}", fontsize=12, color="red")
+        ax[0, 2].text(300, 200, f"Style Loss: {style_loss_1_figure_9.item():.5}", fontsize=12, color="red")
+        if IF_OUTPUT_SIMILARITY_LOSS:
+            ax[0, 2].text(300, 250, f"Similarity Loss: {similarity_loss_1_figure_9.item():.5}", fontsize=12, color="red")
+    elif IF_OUTPUT_SIMILARITY_LOSS:
+        ax[0, 2].text(300, 150, f"Similarity Loss: {similarity_loss_1_figure_9.item():.5}", fontsize=12, color="red")
 
 
 
@@ -371,11 +413,15 @@ if __name__ == "__main__":
     ax[1, 2].axis("off")
 
     # to the right of the output image, add the total loss, content loss, and style loss, adding the title
-    ax[1, 2].text(300, 50, f"From figure 9, layer 3 output of the paper", fontsize=25, color="green")
-    ax[1, 2].text(300, 100, f"Total Loss: {total_loss_3_figure_9.item():.5}", fontsize=25, color="red")
-    ax[1, 2].text(300, 150, f"Content Loss: {content_loss_3_figure_9.item():.5}", fontsize=25, color="red")
-    ax[1, 2].text(300, 200, f"Style Loss: {style_loss_3_figure_9.item():.5}", fontsize=25, color="red")
-    ax[1, 2].text(300, 250, f"Similarity Loss: {similarity_loss_3_figure_9.item():.5}", fontsize=25, color="red")
+    ax[1, 2].text(300, 50, f"From figure 9, layer 3 output of the paper", fontsize=12, color="green")
+    ax[1, 2].text(300, 100, f"Total Loss: {total_loss_3_figure_9.item():.5}", fontsize=12, color="red")
+    if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+        ax[1, 2].text(300, 150, f"Content Loss: {content_loss_3_figure_9.item():.5}", fontsize=12, color="red")
+        ax[1, 2].text(300, 200, f"Style Loss: {style_loss_3_figure_9.item():.5}", fontsize=12, color="red")
+        if IF_OUTPUT_SIMILARITY_LOSS:
+            ax[1, 2].text(300, 250, f"Similarity Loss: {similarity_loss_3_figure_9.item():.5}", fontsize=12, color="red")
+    elif IF_OUTPUT_SIMILARITY_LOSS:
+        ax[1, 2].text(300, 150, f"Similarity Loss: {similarity_loss_3_figure_9.item():.5}", fontsize=12, color="red")
 
 
 
@@ -393,11 +439,15 @@ if __name__ == "__main__":
     ax[2, 2].axis("off")
 
     # to the right of the output image, add the total loss, content loss, and style loss
-    ax[2, 2].text(300, 50, f"From figure 9, layer 5 output of the paper", fontsize=25, color="green")
-    ax[2, 2].text(300, 100, f"Total Loss: {total_loss_5_figure_9.item():.5}", fontsize=25, color="red")
-    ax[2, 2].text(300, 150, f"Content Loss: {content_loss_5_figure_9.item():.5}", fontsize=25, color="red")
-    ax[2, 2].text(300, 200, f"Style Loss: {style_loss_5_figure_9.item():.5}", fontsize=25, color="red")
-    ax[2, 2].text(300, 250, f"Similarity Loss: {similarity_loss_5_figure_9.item():.5}", fontsize=25, color="red")
+    ax[2, 2].text(300, 50, f"From figure 9, layer 5 output of the paper", fontsize=12, color="green")
+    ax[2, 2].text(300, 100, f"Total Loss: {total_loss_5_figure_9.item():.5}", fontsize=12, color="red")
+    if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+        ax[2, 2].text(300, 150, f"Content Loss: {content_loss_5_figure_9.item():.5}", fontsize=12, color="red")
+        ax[2, 2].text(300, 200, f"Style Loss: {style_loss_5_figure_9.item():.5}", fontsize=12, color="red")
+        if IF_OUTPUT_SIMILARITY_LOSS:
+            ax[2, 2].text(300, 250, f"Similarity Loss: {similarity_loss_5_figure_9.item():.5}", fontsize=12, color="red")
+    elif IF_OUTPUT_SIMILARITY_LOSS:
+        ax[2, 2].text(300, 150, f"Similarity Loss: {similarity_loss_5_figure_9.item():.5}", fontsize=12, color="red")
 
     plt.tight_layout()
 
@@ -433,12 +483,12 @@ if __name__ == "__main__":
         output_Master_FS_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_output_Master_FS_image_relative_path))
 
         # preprocess the images
-        content_image = preprocess_image(content_image_raw_image)
-        style_image = preprocess_image(style_image_raw_image)
-        output_AdaAttN_image = preprocess_image(output_AdaAttN_image_raw_image)
-        output_Master_ZS_layer1_image = preprocess_image(output_Master_ZS_layer1_image_raw_image)
-        output_Master_ZS_layer3_image = preprocess_image(output_Master_ZS_layer3_image_raw_image)
-        output_Master_FS_image = preprocess_image(output_Master_FS_image_raw_image)
+        content_image = apply_transform(content_image_raw_image)
+        style_image = apply_transform(style_image_raw_image)
+        output_AdaAttN_image = apply_transform(output_AdaAttN_image_raw_image)
+        output_Master_ZS_layer1_image = apply_transform(output_Master_ZS_layer1_image_raw_image)
+        output_Master_ZS_layer3_image = apply_transform(output_Master_ZS_layer3_image_raw_image)
+        output_Master_FS_image = apply_transform(output_Master_FS_image_raw_image)
 
         # calculate total loss for output_AdaAttN_image
         losses_AdaAttN          = custom_loss_instance(content_image,
@@ -568,4 +618,3 @@ if __name__ == "__main__":
         print(f"Master ZS Layer 3: {losses_Master_ZS_layer3}")
         print(f"Master FS: {losses_Master_FS}")
         print("\n\n\n")
-
