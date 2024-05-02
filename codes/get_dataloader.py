@@ -1,6 +1,3 @@
-import torch
-import torch.utils
-import torch.utils.data
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import cv2
@@ -27,7 +24,7 @@ class coco_train_dataset(Dataset):
             raise FileNotFoundError(f"Dataset not found at {dataset_absolute_path}")
 
         # load coco dataset paths from local directory
-        self.coco_dataset_images_paths = glob.glob(os.path.join(dataset_absolute_path, "*.jpg"))
+        self.coco_dataset_images_paths = sorted(glob.glob(os.path.join(dataset_absolute_path, "*.jpg")))
 
         # check if the dataset is empty
         if len(self.coco_dataset_images_paths) == 0:
@@ -61,7 +58,7 @@ class wikiart_dataset(Dataset):
             raise FileNotFoundError(f"Dataset not found at {dataset_absolute_path}\n\n!!!!!\nPlease download the dataset from https://drive.google.com/file/d/1vTChp3nU5GQeLkPwotrybpUGUXj12BTK/view and extract it to the datasets directory.\n!!!!!\n")
         
         # load wikiart dataset paths from local directory
-        self.wikiart_dataset_images_paths = glob.glob(os.path.join(dataset_absolute_path, "*.jpg"))
+        self.wikiart_dataset_images_paths = sorted(glob.glob(os.path.join(dataset_absolute_path, "*.jpg")))
 
         # check if the dataset is empty
         if len(self.wikiart_dataset_images_paths) == 0:

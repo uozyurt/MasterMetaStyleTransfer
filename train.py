@@ -39,6 +39,7 @@ class Train:
         self.wikiart_dataset_path = config.wikiart_dataset_path
         self.encoder_model_path = config.encoder_model_path
         self.loss_model_path = config.loss_model_path
+        self.use_vgg19_with_batchnorm = config.use_vgg19_with_batchnorm
 
         # Dataloader parameters
         self.batch_size_style = config.batch_size_style
@@ -70,6 +71,13 @@ class Train:
         self.save_every = config.save_every
         self.max_iterations = config.max_iterations
 
+        # Decoder parameters
+        self.init_decoder_with_he = config.init_decoder_with_he
+
+        # Verbose
+        self.verbose = config.verbose
+
+
         # Initialize models
         self.style_transformer = StyleTransformer(
             dim=self.dim,
@@ -91,27 +99,50 @@ class Train:
 
         self.decoder = StyleDecoder()
 
-        # Send models to device and set to train mode
-        self.style_transformer.to(self.device).train()
-        if not self.freeze_encoder:
-            self.swin_encoder = self.swin_encoder.to(self.device).train()
-        else:
-            self.swin_encoder = self.swin_encoder.to(self.device)
-        self.decoder.to(self.device).train()
+        # Send models to device
+        self.style_transformer.to(self.device)
+        self.swin_encoder = self.swin_encoder.to(self.device)
+        self.decoder.to(self.device)
 
-        # Print network information
-        self.print_network(self.style_transformer, 'StyleTransformer')
-        self.print_network(self.swin_encoder, 'SwinEncoder')
-        self.print_network(self.decoder, 'Decoder')
+        if(self.verbose):
+            # Print network information
+            self.print_network(self.style_transformer, 'StyleTransformer')
+            self.print_network(self.swin_encoder, 'SwinEncoder')
+            self.print_network(self.decoder, 'Decoder')
+
+
+
+        if(self.init_decoder_with_he):
+            # initialize the decoder with kaiming (he) uniform initialization
+            for name, param in self.decoder.named_parameters():
+                if 'weight' in name:
+                    torch.nn.init.kaiming_uniform_(param, a=0, nonlinearity='relu')
+                elif 'bias' in name:
+                    torch.nn.init.constant_(param, 0)
+
+
+
+
+
+        # set the devices to training mode
+        self.style_transformer.train()
+        self.decoder.train()
+        if not self.freeze_encoder:
+            self.swin_encoder.train()
+
 
 
         # Initialize loss function
-        self.loss_function = custom_loss(self.project_root, self.loss_model_path, self.lambda_style).to(self.device)
+        self.loss_function = custom_loss(project_absolute_path=self.project_root,
+                                         feature_extractor_model_relative_path=self.loss_model_path,
+                                         use_vgg19_with_batchnorm=self.use_vgg19_with_batchnorm,
+                                         default_lambda_value=self.lambda_style).to(self.device)
 
         # Wandb parameters
         self.use_wandb = config.use_wandb
-        self.online = config.online
-        self.exp_name = config.exp_name
+        if self.use_wandb:
+            self.online = config.online
+            self.exp_name = config.exp_name
 
         # Seed configuration
         self.set_seed = config.set_seed
@@ -161,11 +192,11 @@ class Train:
     def train(self):
         if self.use_wandb:
             mode = 'online' if self.online else 'offline'
+            kwargs = {'name': self.exp_name, 'project': 'master', 'config': config,
+                    'settings': wandb.Settings(_disable_stats=True), 'reinit': True, 'mode': mode, 'save_code': True}
+            wandb.init(**kwargs)
         else:
             mode = 'disabled'
-        kwargs = {'name': self.exp_name, 'project': 'master', 'config': config,
-                  'settings': wandb.Settings(_disable_stats=True), 'reinit': True, 'mode': mode, 'save_code': True}
-        wandb.init(**kwargs)
 
         # Make sure model saving path exists
         if not os.path.exists(self.model_save_path):
@@ -178,6 +209,11 @@ class Train:
         wikiart_dataloader = DataLoader(wikiart_dataset(self.project_root, self.wikiart_dataset_path),
                                         batch_size=self.batch_size_style, shuffle=self.shuffle,
                                         num_workers=self.num_workers, pin_memory=self.pin_memory, drop_last=True)
+        
+        # create dataloader iterators
+        coco_iterator = iter(coco_dataloader)
+        wikiart_iterator = iter(wikiart_dataloader)
+
         
         # Create a new style_transformer and decoder objects, and load the parameters
         if not self.freeze_encoder:
@@ -196,9 +232,13 @@ class Train:
 
 
         for iteration in tqdm(range(1, self.max_iterations + 1)):
-            wandb.log({'iteration': iteration})
+
+            # print the iteration count if verbose is True
+            if self.verbose:
+                print(f"Iteration: {iteration:>10}/{self.max_iterations}")
+
             # Sample a style image
-            style_image = (next(iter(wikiart_dataloader))).to(self.device)
+            style_image = (next(wikiart_iterator)).to(self.device)
             if (self.batch_size_content % self.batch_size_style) == 0:
                 style_image_batch = style_image.repeat((self.batch_size_content // self.batch_size_style), 1, 1, 1)
             else:
@@ -214,9 +254,9 @@ class Train:
 
 
 
-            for _ in range(self.num_inner_updates):
+            for inner_loop_index in range(1, self.num_inner_updates+1):
                 # Sample a batch of content images
-                content_images = next(iter(coco_dataloader))
+                content_images = next(coco_iterator)
                 content_images = content_images.to(self.device)
                 # Randomly select the number of layers to use
                 num_layers = random.randint(1, self.max_layers)
@@ -240,17 +280,21 @@ class Train:
 
                 # Compute inner loss
                 total_loss, content_loss, style_loss = self.loss_function(content_images, style_image_batch, decoded_output, output_content_and_style_loss=True)
+             
+                # Print the loss values if verbose is True
+                if self.verbose:
+                    print(f"Inner Loop {inner_loop_index:>5}/{self.num_inner_updates} - Total Loss: {total_loss:.2f}, Content Loss: {content_loss:.2f}, Style Loss: {style_loss:.2f}")
+                    
 
-
-                # Log losses
-                wandb.log({'total_loss': total_loss})
-                wandb.log({'content_loss': content_loss})
-                wandb.log({'style_loss': style_loss})
                 # Backpropagation and optimization
                 inner_loop_optimizer.zero_grad()
                 total_loss.backward()
                 inner_loop_optimizer.step()
 
+            
+            # put some new lines for better readability if verbose is True
+            if self.verbose:
+                print("\n\n")
 
 
             # Update theta parameters with omega parameters
@@ -268,14 +312,30 @@ class Train:
             for name, param in self.decoder.named_parameters():
                 param.data += self.outer_lr * (omega_decoder.state_dict()[name] - param)
             
-            # Save model periodically
+
+
+
             if iteration % self.save_every == 0:
+                # Save model periodically
                 self.save_models(iteration)
 
-                # Log sample images
-                wandb.log({'content_image': [wandb.Image(content_images[0])]})
-                wandb.log({'style_image': [wandb.Image(style_image)]})
-                wandb.log({'stylized_image': [wandb.Image(decoded_output[0])]})
+                if self.use_wandb:
+                    # Log Iteration, Losses and Images
+                    wandb.log({'iteration': iteration,
+                            'total_loss': total_loss,
+                            'content_loss': content_loss,
+                            'style_loss': style_loss,
+                            'content_image': [wandb.Image(content_images[0])],
+                            'style_image': [wandb.Image(style_image)],
+                            'stylized_image': [wandb.Image(decoded_output[0])]})
+            else:
+                if self.use_wandb:
+                    # Log Iteration and Losses
+                    wandb.log({'iteration': iteration,
+                                'total_loss': total_loss,
+                                'content_loss': content_loss,
+                                'style_loss': style_loss})
+
 
 
 
@@ -290,7 +350,9 @@ if __name__ == '__main__':
     # Loss model path
     parser.add_argument('--loss_model_path', type=str, default="weights/vgg_19_last_layer_is_relu_5_1_output.pt",
                         help="Relative path to the pre-trained VGG19 model cut at the last layer of relu 5_1.")
-
+    parser.add_argument('--use_vgg19_with_batchnorm', type=bool, default=False,
+                        help="If true, use the pre-trained VGG19 model with batch normalization.")
+    
     # StyleTransformer parameters
     parser.add_argument('--dim', type=int, default=256, help='Number of input channels.')
     parser.add_argument('--input_resolution', type=int, nargs=2, default=[32, 32], help='Dimensions (height, width) of the input feature map.')
@@ -307,6 +369,9 @@ if __name__ == '__main__':
     # SwinEncoder parameters
     parser.add_argument('--encoder_model_path', type=str, default='weights/swin_B_first_2_stages.pt', help='Path where the Swin model is saved or should be saved.')
     parser.add_argument('--freeze_encoder', default=True, help='Freeze the parameters of the model.')
+
+    # Decoder parameters
+    parser.add_argument('--init_decoder_with_he', type=bool, default=True, help='Initialize the decoder with He uniform initialization.')
 
     # Hyperparameters
     parser.add_argument('--inner_lr', type=float, default=0.0001, help='Inner learning rate (delta)')
@@ -337,6 +402,9 @@ if __name__ == '__main__':
     parser.add_argument('--use_wandb', type=bool, default=False, help='use wandb for logging')
     parser.add_argument('--online', type=bool, default=True, help='use wandb online')
     parser.add_argument('--exp_name', type=str, default='master', help='experiment name')
+
+    # verbose
+    parser.add_argument('--verbose', type=bool, default=True, help='Print the model informations and loss values at each loss calculation.')
 
 
     config = parser.parse_args()
