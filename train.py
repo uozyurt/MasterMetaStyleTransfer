@@ -223,8 +223,8 @@ class Train:
 
                 # Encode the content and style images using the Swin Transformer
                 if not self.freeze_encoder:
-                    encoded_content = self.swin_encoder(content_images)
-                    encoded_style = self.swin_encoder(style_image_batch)
+                    encoded_content = omega_encoder(content_images)
+                    encoded_style = omega_encoder(style_image_batch)
                 else:
                     encoded_content = self.swin_encoder(content_images)
                     encoded_style = self.swin_encoder(style_image_batch)
