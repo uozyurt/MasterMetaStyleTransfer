@@ -1,15 +1,11 @@
-import torch
-import torch.utils
-import torch.utils.data
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-import cv2
 import glob
 import os
+from PIL import Image
 
 # TODO: check if normalization with mean and std is needed
 transform = transforms.Compose([
-    transforms.ToPILImage(), # -> PIL image
     transforms.Resize((512, 512)), # -> resize to 512x512
     transforms.RandomCrop((256,256)) , # random crop to 256x256
     transforms.ToTensor()
@@ -39,11 +35,8 @@ class coco_train_dataset(Dataset):
 
     # return the image at the given index
     def __getitem__(self, id):
-        # load image
-        img = cv2.imread(self.coco_dataset_images_paths[id])
-
-        # convert the image to RGB
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # load image with pillow
+        img = Image.open(self.coco_dataset_images_paths[id])
 
         # apply transformations
         img = transform(img)
@@ -73,11 +66,8 @@ class wikiart_dataset(Dataset):
 
     # return the image at the given index
     def __getitem__(self, id):
-        # load image
-        img = cv2.imread(self.wikiart_dataset_images_paths[id])
-
-        # convert the image to RGB
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # load image with pillow
+        img = Image.open(self.wikiart_dataset_images_paths[id])
 
         # apply transformations
         img = transform(img)
