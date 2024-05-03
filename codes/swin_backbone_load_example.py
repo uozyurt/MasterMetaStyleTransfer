@@ -4,8 +4,21 @@ if(__name__ == "__main__"):
     import torch
     import cv2
     import matplotlib.pyplot as plt
+    from torchvision import transforms
+
     project_absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+
+    transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((256, 256)),
+        transforms.ToTensor()
+    ])
+
+    def apply_transform(image):
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        return transform(image).unsqueeze(0)
+    
     # add the project path to the system path
     import sys
     sys.path.append(project_absolute_path)
@@ -29,23 +42,46 @@ if(__name__ == "__main__"):
     for param in swin_B_first_2_stages.parameters():
         param.requires_grad = False
 
-    # test with an image
-    example_image = cv2.imread(os.path.join(project_absolute_path, "codes/images_to_try_loss_function/style_layer.png"))
+    # test with images
+    example_image_1 = cv2.imread(os.path.join(project_absolute_path, "codes/images_to_try_loss_function/figure4/figure4_column1_content.png"))
+    example_image_2 = cv2.imread(os.path.join(project_absolute_path, "codes/images_to_try_loss_function/figure4/figure4_column1_output_AdaAttN.png"))
+    example_image_3 = cv2.imread(os.path.join(project_absolute_path, "codes/images_to_try_loss_function/figure4/figure4_column2_content.png"))
+    
+
+
 
     # print the shape of the image before preprocess
-    print(f"Example image shape before preprocess: {example_image.shape}")
+    print(f"Example image shape before preprocess: {example_image_1.shape}")
 
-    # plot the image
-    plt.imshow(cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB))
-
-    # resize the image to 256x256, it to a tensor and preprocess it (inpurt should be batch x channels x height x width)
-    example_image = torch.tensor(cv2.resize(example_image, (256, 256))).permute(2,0,1).unsqueeze(0).float()/256
+    # apply the transform
+    example_image_1 = apply_transform(example_image_1)
 
     # print the shape of the image after preprocess
-    print(f"Example image shape: {example_image.shape}")
+    print(f"Example image shape after preprocess: {example_image_1.shape}")
 
     # get the output of the model
-    output = swin_B_first_2_stages(example_image)
+    output = swin_B_first_2_stages(example_image_1)
 
     # print the shape of the outputs
-    print(f"Output shape: {output.shape}")
+    print(f"Output shape of swin_S: {output.shape}")
+
+    # preprocess the second and third images
+    example_image_2 = apply_transform(example_image_2)
+    example_image_3 = apply_transform(example_image_3)
+
+    # get the output of the model
+    output_2 = swin_B_first_2_stages(example_image_2)
+    output_3 = swin_B_first_2_stages(example_image_3)
+
+    # permute
+    output = output.permute(0, 2, 3, 1)
+    output_2 = output_2.permute(0, 2, 3, 1)
+    output_3 = output_3.permute(0, 2, 3, 1)
+
+    # get the cosine similarity between the outputs
+    similarity_1_2 = torch.nn.functional.cosine_similarity(output, output_2)
+    similarity_1_3 = torch.nn.functional.cosine_similarity(output, output_3)
+
+    # print the cosine similarity
+    print(f"Similarity between the first and second image: {torch.mean(similarity_1_2)}")
+    print(f"Similarity between the first and third image: {torch.mean(similarity_1_3)}")
