@@ -1,8 +1,9 @@
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, BatchSampler, Sampler
 from torchvision import transforms
 import cv2
 import glob
 import os
+import torch
 
 # TODO: check if normalization with mean and std is needed
 transform = transforms.Compose([
@@ -11,6 +12,20 @@ transform = transforms.Compose([
     transforms.RandomCrop((256,256)) , # random crop to 256x256
     transforms.ToTensor()
 ])
+
+
+# write an infinite batch sampler
+class InfiniteSampler(Sampler):
+    def __init__(self, data_source):
+        self.data_source = data_source
+
+    def __iter__(self):
+        while True:
+            yield from torch.randperm(len(self.data_source)).tolist()
+
+    def __len__(self):
+        return 2**31
+        
 
 class coco_train_dataset(Dataset):
     # initialize the dataset
@@ -121,20 +136,23 @@ if __name__ == "__main__":
     DROP_LAST_coco = True
     DROP_LAST_wikiart = True
 
+
+
+
     # create the dataloaders
     coco_dataloader = DataLoader(coco_dataset_instance,
                                  batch_size=BATCH_SIZE_coco,
-                                 shuffle=SHUFFLE_coco,
                                  num_workers=NUM_WORKERS_coco,
                                  pin_memory=PIN_MEMORY_coco,
-                                 drop_last=DROP_LAST_coco)
+                                 drop_last=DROP_LAST_coco,
+                                 sampler=InfiniteSampler(coco_dataset_instance))
 
     wikiart_dataloader = DataLoader(wikiart_dataset_instance,
                                     batch_size=BATCH_SIZE_wikiart,
-                                    shuffle=SHUFFLE_wikiart,
                                     num_workers=NUM_WORKERS_wikiart,
                                     pin_memory=PIN_MEMORY_wikiart,
-                                    drop_last=DROP_LAST_wikiart)
+                                    drop_last=DROP_LAST_wikiart,
+                                    sampler=InfiniteSampler(wikiart_dataset_instance))
 
     # iterate over the dataloaders
     for i, data in enumerate(coco_dataloader):

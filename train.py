@@ -12,7 +12,7 @@ import wandb
 
 from codes.models import SwinEncoder, StyleTransformer, StyleDecoder
 from codes.loss import custom_loss
-from codes.get_dataloader import coco_train_dataset, wikiart_dataset
+from codes.get_dataloader import coco_train_dataset, wikiart_dataset, InfiniteSampler
 
 
 class Train:
@@ -46,6 +46,7 @@ class Train:
         self.batch_size_content = config.batch_size_content
         self.num_workers = config.num_workers
         self.shuffle = config.shuffle
+        self.use_infinite_sampler = config.use_infinite_sampler
         self.pin_memory = config.pin_memory
 
         # Model parameters
@@ -102,7 +103,7 @@ class Train:
             freeze_params=self.freeze_encoder,
         )
 
-        self.decoder = StyleDecoder()
+        self.decoder = StyleDecoder(channel_dim=self.dim)
 
         # Send models to device
         self.style_transformer.to(self.device)
@@ -121,7 +122,7 @@ class Train:
             # initialize the decoder with kaiming (he) uniform initialization
             for name, param in self.decoder.named_parameters():
                 if 'weight' in name:
-                    torch.nn.init.kaiming_uniform_(param, a=0, nonlinearity='relu')
+                    torch.nn.init.kaiming_normal_(param, a=0, nonlinearity='relu')
                 elif 'bias' in name:
                     torch.nn.init.constant_(param, 0)
 
@@ -217,14 +218,37 @@ class Train:
         if not os.path.exists(self.model_save_path):
             os.makedirs(self.model_save_path)
 
+        # create dataset objects
+        coco_train_dataset_object = coco_train_dataset(self.project_root, self.coco_dataset_path)
+        wikiart_dataset_object = wikiart_dataset(self.project_root, self.wikiart_dataset_path)
+
         # Initialize Dataloaders
-        coco_dataloader = DataLoader(coco_train_dataset(self.project_root, self.coco_dataset_path),
-                                     batch_size=self.batch_size_content, shuffle=self.shuffle,
-                                     num_workers=self.num_workers, pin_memory=self.pin_memory, drop_last=True)
-        wikiart_dataloader = DataLoader(wikiart_dataset(self.project_root, self.wikiart_dataset_path),
-                                        batch_size=self.batch_size_style, shuffle=self.shuffle,
-                                        num_workers=self.num_workers, pin_memory=self.pin_memory, drop_last=True)
+        if not self.use_infinite_sampler:
+            coco_dataloader = DataLoader(coco_train_dataset_object,
+                                         batch_size=self.batch_size_content,
+                                         shuffle=self.shuffle,
+                                         num_workers=self.num_workers,
+                                         pin_memory=self.pin_memory,
+                                         drop_last=True)
+            wikiart_dataloader = DataLoader(wikiart_dataset_object,
+                                            batch_size=self.batch_size_style,
+                                            shuffle=self.shuffle,
+                                            num_workers=self.num_workers,
+                                            pin_memory=self.pin_memory,
+                                            drop_last=True)
+        else:
+            coco_dataloader = DataLoader(coco_train_dataset_object,
+                                         batch_size=self.batch_size_content,
+                                         num_workers=self.num_workers,
+                                         pin_memory=self.pin_memory,
+                                         sampler=InfiniteSampler(coco_train_dataset_object))
+            wikiart_dataloader = DataLoader(wikiart_dataset_object,
+                                            batch_size=self.batch_size_style,
+                                            num_workers=self.num_workers,
+                                            pin_memory=self.pin_memory,
+                                            sampler=InfiniteSampler(wikiart_dataset_object))
         
+
         # create dataloader iterators
         coco_iterator = iter(coco_dataloader)
         wikiart_iterator = iter(wikiart_dataloader)
@@ -260,12 +284,14 @@ class Train:
                 style_image_batch = torch.cat((style_image.repeat((self.batch_size_content // self.batch_size_style), 1, 1, 1),
                                               style_image[:self.batch_size_content % self.batch_size_style]),
                                               dim=0)
+                
 
-            # load the models parameters to omega parameters without creating a new object
+            # load the transformer and decoder from main weights
             omega_style_transformer.load_state_dict(self.style_transformer.state_dict())
             omega_decoder.load_state_dict(self.decoder.state_dict())
             if not self.freeze_encoder:
                 omega_encoder.load_state_dict(self.swin_encoder.state_dict())
+
 
 
 
@@ -298,7 +324,7 @@ class Train:
              
                 # Print the loss values if verbose is True
                 if self.verbose:
-                    print(f"Inner Loop {inner_loop_index:>5}/{self.num_inner_updates} - Total Loss: {total_loss:.2f}, Content Loss: {content_loss:.2f}, Style Loss: {style_loss:.2f}")
+                    print(f"Inner Loop {inner_loop_index:>5}/{self.num_inner_updates} - Total Loss: {total_loss:.2f}, Content Loss: {content_loss:.2f}, Style Loss: {style_loss:.2f}, Num Layers: {num_layers}")
                     
 
                 # Backpropagation and optimization
@@ -306,10 +332,6 @@ class Train:
                 total_loss.backward()
                 inner_loop_optimizer.step()
 
-            
-            # put some new lines for better readability if verbose is True
-            if self.verbose:
-                print("\n\n")
 
 
             # Update theta parameters with omega parameters
@@ -350,6 +372,11 @@ class Train:
                                 'total_loss': total_loss,
                                 'content_loss': content_loss,
                                 'style_loss': style_loss})
+                    
+
+            # put some new lines for better readability if verbose is True
+            if self.verbose:
+                print("\n\n")
 
 
 
@@ -410,6 +437,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size_content', type=int, default=4, help='Batch size for the content dataset')
     parser.add_argument('--num_workers', type=int, default=4, help='Number of workers for data loading')
     parser.add_argument('--shuffle', default=True, help='Whether to shuffle the dataset')
+    parser.add_argument('--use_infinite_sampler', default=True, help='Whether to use the InfiniteSampler (if used, shuffle will be neglected)')
     parser.add_argument('--pin_memory', default=True, help='Whether to pin memory for faster data transfer to CUDA')
 
     # Seed configuration.
