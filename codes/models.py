@@ -26,17 +26,49 @@ class StyleTransformer(nn.Module):
         attn_drop (float, optional): Dropout rate applied to attention weights.
         act_layer (nn.Module, optional): Activation function used in the MLP block. Defaults to nn.ReLU.
     """
-    def __init__(self, dim, input_resolution, num_heads, window_size=8, shift_size=4,
-                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
-                 act_layer=nn.ReLU):
+    def __init__(self,
+                 dim,
+                 input_resolution,
+                 num_heads,
+                 window_size=8,
+                 shift_size=4,
+                 mlp_ratio=4.,
+                 qkv_bias=True,
+                 qk_scale=None,
+                 proj_bias=True,
+                 drop=0.,
+                 attn_drop=0.,
+                 act_layer=nn.ReLU,
+                 use_different_v_weights=False):
         super().__init__()
 
         self.dim = dim
         self.input_resolution = input_resolution
-        self.encoder = StyleTransformerEncoderBlock(dim, input_resolution, num_heads, window_size,
-                                                     shift_size, mlp_ratio, qkv_bias, qk_scale, drop, attn_drop, act_layer)
-        self.decoder = StyleTransformerDecoderBlock(dim, input_resolution, num_heads, window_size,
-                                                     shift_size, mlp_ratio, qkv_bias, qk_scale, drop, attn_drop, act_layer)
+        self.encoder = StyleTransformerEncoderBlock(dim=dim, 
+                                                    input_resolution=input_resolution,
+                                                    num_heads=num_heads,
+                                                    window_size=window_size,
+                                                    shift_size=shift_size,
+                                                    mlp_ratio=mlp_ratio,
+                                                    qkv_bias=qkv_bias,
+                                                    qk_scale=qk_scale,
+                                                    proj_bias=proj_bias,
+                                                    drop=drop,
+                                                    attn_drop=attn_drop,
+                                                    act_layer=act_layer,
+                                                    use_different_v_weights=use_different_v_weights)
+        self.decoder = StyleTransformerDecoderBlock(dim=dim,
+                                                    input_resolution=input_resolution,
+                                                    num_heads=num_heads,
+                                                    window_size=window_size,
+                                                    shift_size=shift_size,
+                                                    mlp_ratio=mlp_ratio,
+                                                    qkv_bias=qkv_bias,
+                                                    qk_scale=qk_scale,
+                                                    proj_bias=proj_bias,
+                                                    drop=drop,
+                                                    attn_drop=attn_drop,
+                                                    act_layer=act_layer,)
 
     def forward(self, content, style, num_steps=4):
         """
@@ -48,22 +80,21 @@ class StyleTransformer(nn.Module):
         Returns:
             torch.Tensor: The transformed content features after T steps.
         """
-        # change the shape of style and content to (B, H*w, C) from (B, H, W, C)
-        content = content.flatten(1, 2).to(content.device)
-        style = style.flatten(1, 2).to(style.device)
 
         # Initialize scale and shift from style
+        Fcs = content.clone()
+        key = style.clone()
         scale = style.clone()  # Initialize scale from style
         shift = style.clone()  # Initialize shift from style
 
         for _ in range(num_steps):
-            style, scale, shift = self.encoder(style, scale, shift)
-            content = self.decoder(content, style, scale, shift)
+            key, scale, shift = self.encoder(key, scale, shift)
+            Fcs = self.decoder(Fcs, key, scale, shift)
 
         # change the shape of content to (B, H, W, C) from (B, H*w, C)
-        content = content.view(-1, self.input_resolution[0], self.input_resolution[1], self.dim)
+        Fcs = Fcs.view(-1, self.input_resolution[0], self.input_resolution[1], self.dim)
     
-        return content
+        return Fcs
 
 
 class StyleDecoder(nn.Module):
@@ -129,7 +160,7 @@ class StyleDecoder(nn.Module):
 
 
 class SwinEncoder(torch.nn.Module):
-    def __init__(self, relative_model_path="weights/swin_B_first_2_stages.pt", freeze_params=False):
+    def __init__(self, relative_model_path="weights/swin_B_first_2_stages.pt", freeze_params=True):
         """
         Initializes the SwinEncoder object which uses the first two stages of the Swin Transformer.
 

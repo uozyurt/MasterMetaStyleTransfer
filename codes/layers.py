@@ -2,7 +2,22 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from timm.models.layers import trunc_normal_, to_2tuple
+from typing import Any, Callable, List, Optional
+from enum import Enum
 
+import math
+
+from torch import nn, Tensor
+import torch.nn.functional as F
+
+from torch.nn import MultiheadAttention
+from torchvision.models.swin_transformer import SwinTransformer, SwinTransformerBlock
+
+
+class V_weight_type(Enum):
+    KEY = 0
+    SCALE = 1
+    SHIFT = 2
 
 
 class Mlp(nn.Module):
@@ -22,167 +37,309 @@ class Mlp(nn.Module):
         x = self.fc2(x)
         x = self.drop(x)
         return x
+    
 
 
-def window_partition(x, window_size):
+
+
+# TAKEN FROM PYTHORCH IMPLEMENTATION (torchvision.models.swin_transformer)
+# CHANGED TO UTILIZE CROSS ATTENTION
+def shifted_window_attention(
+    input_Q: Tensor,
+    input_K: Tensor,
+    input_V: Tensor,
+    Q_weight: Tensor,
+    K_weight: Tensor,
+    V_weight: Tensor,
+    proj_weight: Tensor,
+    relative_position_bias: Tensor,
+    window_size: List[int],
+    num_heads: int,
+    shift_size: List[int],
+    attention_dropout: float = 0.0,
+    dropout: float = 0.0,
+    Q_bias: Optional[Tensor] = None,
+    K_bias: Optional[Tensor] = None,
+    V_bias: Optional[Tensor] = None,
+    proj_bias: Optional[Tensor] = None,
+    logit_scale: Optional[torch.Tensor] = None,
+):
     """
+    Window based multi-head self attention (W-MSA) module with relative position bias.
+    It supports both of shifted and non-shifted window.
     Args:
-        x: (B, H, W, C)
-        window_size (int): window size
-
+        input (Tensor[N, H, W, C]): The input tensor or 4-dimensions.
+        qkv_weight (Tensor[in_dim, out_dim]): The weight tensor of query, key, value.
+        proj_weight (Tensor[out_dim, out_dim]): The weight tensor of projection.
+        relative_position_bias (Tensor): The learned relative position bias added to attention.
+        window_size (List[int]): Window size.
+        num_heads (int): Number of attention heads.
+        shift_size (List[int]): Shift size for shifted window attention.
+        attention_dropout (float): Dropout ratio of attention weight. Default: 0.0.
+        dropout (float): Dropout ratio of output. Default: 0.0.
+        qkv_bias (Tensor[out_dim], optional): The bias tensor of query, key, value. Default: None.
+        proj_bias (Tensor[out_dim], optional): The bias tensor of projection. Default: None.
+        logit_scale (Tensor[out_dim], optional): Logit scale of cosine attention for Swin Transformer V2. Default: None.
     Returns:
-        windows: (num_windows*B, window_size, window_size, C)
+        Tensor[N, H, W, C]: The output tensor after shifted window attention.
     """
-    B, H, W, C = x.shape
-    x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
-    windows = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, C)
-    return windows
+    # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+    B, H, W, C = input_Q.shape
+
+    # pad feature maps to multiples of window size
+    pad_r = (window_size[1] - W % window_size[1]) % window_size[1]
+    pad_b = (window_size[0] - H % window_size[0]) % window_size[0]
+
+    # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+    x_Q = F.pad(input_Q, (0, 0, 0, pad_r, 0, pad_b))
+    x_K = F.pad(input_K, (0, 0, 0, pad_r, 0, pad_b))
+    x_V = F.pad(input_V, (0, 0, 0, pad_r, 0, pad_b))
+    _, pad_H, pad_W, _ = x_Q.shape
 
 
-def window_reverse(windows, window_size, H, W):
-    """
-    Args:
-        windows: (num_windows*B, window_size, window_size, C)
-        window_size (int): Window size
-        H (int): Height of image
-        W (int): Width of image
+    # If window size is larger than feature size, there is no need to shift window
+    if window_size[0] >= pad_H:
+        shift_size[0] = 0
+    if window_size[1] >= pad_W:
+        shift_size[1] = 0
 
-    Returns:
-        x: (B, H, W, C)
-    """
-    B = int(windows.shape[0] / (H * W / window_size / window_size))
-    x = windows.view(B, H // window_size, W // window_size, window_size, window_size, -1)
-    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
+    # cyclic shift
+    if sum(shift_size) > 0:
+        # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+        x_Q = torch.roll(x_Q, shifts=(-shift_size[0], -shift_size[1]), dims=(1, 2))
+        x_K = torch.roll(x_K, shifts=(-shift_size[0], -shift_size[1]), dims=(1, 2))
+        x_V = torch.roll(x_V, shifts=(-shift_size[0], -shift_size[1]), dims=(1, 2))
+
+    # partition windows
+    num_windows = (pad_H // window_size[0]) * (pad_W // window_size[1])
+
+
+    # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+    x_Q = x_Q.view(B, pad_H // window_size[0], window_size[0], pad_W // window_size[1], window_size[1], C)
+    x_Q = x_Q.permute(0, 1, 3, 2, 4, 5).reshape(B * num_windows, window_size[0] * window_size[1], C)  # B*nW, Ws*Ws, C
+
+    # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+    x_K = x_K.view(B, pad_H // window_size[0], window_size[0], pad_W // window_size[1], window_size[1], C)
+    x_K = x_K.permute(0, 1, 3, 2, 4, 5).reshape(B * num_windows, window_size[0] * window_size[1], C)  # B*nW, Ws*Ws, C
+
+    # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+    x_V = x_V.view(B, pad_H // window_size[0], window_size[0], pad_W // window_size[1], window_size[1], C)
+    x_V = x_V.permute(0, 1, 3, 2, 4, 5).reshape(B * num_windows, window_size[0] * window_size[1], C)  # B*nW, Ws*Ws, C
+
+
+    # multi-head attention
+    if logit_scale is not None and qkv_bias is not None:
+        qkv_bias = qkv_bias.clone()
+        length = qkv_bias.numel() // 3
+        qkv_bias[length : 2 * length].zero_()
+
+    # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+    q = F.linear(x_Q, Q_weight, Q_bias)
+    q = q.reshape(x_Q.size(0), x_Q.size(1), 1, num_heads, C // num_heads).permute(2, 0, 3, 1, 4)
+
+    # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+    k = F.linear(x_K, K_weight, K_bias)
+    k = k.reshape(x_K.size(0), x_K.size(1), 1, num_heads, C // num_heads).permute(2, 0, 3, 1, 4)
+
+    # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+    v = F.linear(x_V, V_weight, V_bias)
+    v = v.reshape(x_V.size(0), x_V.size(1), 1, num_heads, C // num_heads).permute(2, 0, 3, 1, 4)
+
+    if logit_scale is not None:
+        # cosine attention
+        # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+        attn = F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1)
+        logit_scale = torch.clamp(logit_scale, max=math.log(100.0)).exp()
+        attn = attn * logit_scale
+    else:
+        # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+        q = q * (C // num_heads) ** -0.5
+        attn = q.matmul(k.transpose(-2, -1))
+    # add relative position bias
+    attn = attn + relative_position_bias
+
+    if sum(shift_size) > 0:
+        # generate attention mask
+        # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+        attn_mask = x_Q.new_zeros((pad_H, pad_W))
+        h_slices = ((0, -window_size[0]), (-window_size[0], -shift_size[0]), (-shift_size[0], None))
+        w_slices = ((0, -window_size[1]), (-window_size[1], -shift_size[1]), (-shift_size[1], None))
+        count = 0
+        for h in h_slices:
+            for w in w_slices:
+                attn_mask[h[0] : h[1], w[0] : w[1]] = count
+                count += 1
+        attn_mask = attn_mask.view(pad_H // window_size[0], window_size[0], pad_W // window_size[1], window_size[1])
+        attn_mask = attn_mask.permute(0, 2, 1, 3).reshape(num_windows, window_size[0] * window_size[1])
+        attn_mask = attn_mask.unsqueeze(1) - attn_mask.unsqueeze(2)
+        attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
+        attn = attn.view(x_Q.size(0) // num_windows, num_windows, num_heads, x_Q.size(1), x_Q.size(1))
+        attn = attn + attn_mask.unsqueeze(1).unsqueeze(0)
+        attn = attn.view(-1, num_heads, x_Q.size(1), x_Q.size(1))
+
+    attn = F.softmax(attn, dim=-1)
+    attn = F.dropout(attn, p=attention_dropout)
+
+    # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+    x = attn.matmul(v).transpose(1, 2).reshape(x_Q.size(0), x_Q.size(1), C)
+    x = F.linear(x, proj_weight, proj_bias)
+    x = F.dropout(x, p=dropout)
+
+    # reverse windows
+    x = x.view(B, pad_H // window_size[0], pad_W // window_size[1], window_size[0], window_size[1], C)
+    x = x.permute(0, 1, 3, 2, 4, 5).reshape(B, pad_H, pad_W, C)
+
+    # reverse cyclic shift
+    if sum(shift_size) > 0:
+        x = torch.roll(x, shifts=(shift_size[0], shift_size[1]), dims=(1, 2))
+
+    # unpad features
+    x = x[:, :H, :W, :].contiguous()
     return x
 
 
-class WindowAttention(nn.Module):
-    r""" Window based multi-head self attention (W-MSA) module with relative position bias.
-    It supports both of shifted and non-shifted window. This setup allows different updates for 
-    each (x, scale, shift) based on the same relationships.
 
-    Args:
-        dim (int): Number of input channels.
-        window_size (tuple[int]): Dimensions (height, width) of the window.
-        num_heads (int): Number of attention heads.
-        qkv_bias (bool, optional): If True, includes a learnable bias to query, key, value matrices.
-        qk_scale (float, optional): Custom scaling factor for query-key scores; if None, uses head_dim ** -0.5.
-        attn_drop (float, optional): Dropout rate for attention weights.
-        proj_drop (float, optional): Dropout rate for output projections.
 
-    Attributes:
-        scale (float): Scaling factor for query-key scores.
-        relative_position_bias_table (nn.Parameter): Learnable relative positional biases.
-        relative_position_index (torch.Tensor): Index map for relative positioning.
-        qkv (nn.Linear): Linear layer for generating query, key, and value.
-        v_scale (nn.Linear): Linear layer to transform scale input for value computation.
-        v_shift (nn.Linear): Linear layer to transform shift input for value computation.
-        attn_drop (nn.Dropout): Dropout layer for attention.
-        proj_x (nn.Linear): Projection layer for outputs.
-        proj_x_drop (nn.Dropout): Dropout layer after projection.
-        proj_scale (nn.Linear): Projection layer for scale outputs.
-        proj_shift (nn.Linear): Projection layer for shift outputs.
-        proj_scale_drop (nn.Dropout): Dropout for scale projection.
-        proj_shift_drop (nn.Dropout): Dropout for shift projection.
-        softmax (nn.Softmax): Softmax layer for normalization.
+# TAKEN FROM PYTHORCH IMPLEMENTATION (torchvision.models.swin_transformer)
+def _get_relative_position_bias(
+    relative_position_bias_table: torch.Tensor, relative_position_index: torch.Tensor, window_size: List[int]
+) -> torch.Tensor:
+    N = window_size[0] * window_size[1]
+    relative_position_bias = relative_position_bias_table[relative_position_index]  # type: ignore[index]
+    relative_position_bias = relative_position_bias.view(N, N, -1)
+    relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous().unsqueeze(0)
+    return relative_position_bias
+
+
+
+
+# TAKEN FROM PYTHORCH IMPLEMENTATION (torchvision.models.swin_transformer)
+# CHANGED TO UTILIZE CROSS ATTENTION
+class ShiftedWindowAttention(nn.Module):
+    """
+    See :func:`shifted_window_attention`.
     """
 
-    def __init__(self, dim, window_size, num_heads, use_ss=False, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+    def __init__(
+        self,
+        dim: int,
+        window_size: List[int],
+        shift_size: List[int],
+        num_heads: int,
+        qkv_bias: bool = True,
+        proj_bias: bool = True,
+        attention_dropout: float = 0.0,
+        dropout: float = 0.0,
+        use_different_v_weights: bool = False,
+    ):
         super().__init__()
-        self.dim = dim
+        if len(window_size) != 2 or len(shift_size) != 2:
+            raise ValueError("window_size and shift_size must be of length 2")
         self.window_size = window_size
+        self.shift_size = shift_size
         self.num_heads = num_heads
-        self.scale = qk_scale or (dim // num_heads) ** -0.5
-        self.use_ss = use_ss
+        self.attention_dropout = attention_dropout
+        self.dropout = dropout
+        self.use_different_v_weights = use_different_v_weights
 
+        # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+        self.Q_weight = nn.Linear(dim, dim , bias=qkv_bias)
+        self.K_weight = nn.Linear(dim, dim, bias=qkv_bias)
+        if not use_different_v_weights:
+            self.V_weight = nn.Linear(dim, dim, bias=qkv_bias)
+        else:
+            self.V_weight_key = nn.Linear(dim, dim, bias=qkv_bias)
+            self.V_weight_scale = nn.Linear(dim, dim, bias=qkv_bias)
+            self.V_weight_shift = nn.Linear(dim, dim, bias=qkv_bias)
+
+        self.proj = nn.Linear(dim, dim, bias=proj_bias)
+
+        self.define_relative_position_bias_table()
+        self.define_relative_position_index()
+
+    def define_relative_position_bias_table(self):
         # define a parameter table of relative position bias
         self.relative_position_bias_table = nn.Parameter(
-            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
+            torch.zeros((2 * self.window_size[0] - 1) * (2 * self.window_size[1] - 1), self.num_heads)
+        )  # 2*Wh-1 * 2*Ww-1, nH
+        nn.init.trunc_normal_(self.relative_position_bias_table, std=0.02)
 
+    def define_relative_position_index(self):
         # get pair-wise relative position index for each token inside the window
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
-        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
+        coords = torch.stack(torch.meshgrid(coords_h, coords_w, indexing="ij"))  # 2, Wh, Ww
         coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
         relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
         relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
         relative_coords[:, :, 0] += self.window_size[0] - 1  # shift to start from 0
         relative_coords[:, :, 1] += self.window_size[1] - 1
         relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
-        relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
+        relative_position_index = relative_coords.sum(-1).flatten()  # Wh*Ww*Wh*Ww
         self.register_buffer("relative_position_index", relative_position_index)
 
-        # Layers for queries and keys (shared by K) and separate value layers for K, scale, shift
-        self.Wq = nn.Linear(dim, dim, bias=qkv_bias)
-        self.Wk = nn.Linear(dim, dim, bias=qkv_bias)
-        self.Wv = nn.Linear(dim, dim, bias=qkv_bias)
+    def get_relative_position_bias(self) -> torch.Tensor:
+        return _get_relative_position_bias(
+            self.relative_position_bias_table, self.relative_position_index, self.window_size  # type: ignore[arg-type]
+        )
 
-        if self.use_ss:
-            self.v_scale = nn.Linear(dim, dim, bias=qkv_bias)
-            self.v_shift = nn.Linear(dim, dim, bias=qkv_bias)
-
-        # Drouput and projection layers
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj_x = nn.Linear(dim, dim)
-        self.proj_x_drop = nn.Dropout(proj_drop)
-
-        if self.use_ss:
-            self.proj_scale = nn.Linear(dim, dim)
-            self.proj_shift = nn.Linear(dim, dim)
-            self.proj_scale_drop = nn.Dropout(proj_drop)
-            self.proj_shift_drop = nn.Dropout(proj_drop)
-
-        trunc_normal_(self.relative_position_bias_table, std=.02)
-        self.softmax = nn.Softmax(dim=-1)
-
-    def forward(self, q_input, k_input, v_input, scale=None, shift=None, mask=None):
+    
+    def forward(self,
+                Q: Tensor,
+                K: Tensor,
+                V: Tensor,
+                key_type: Optional[V_weight_type] = None,
+                ):
         """
         Args:
-            x: input features with shape of (num_windows*B, N, C)
-            mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
+            x (Tensor): Tensor with layout of [B, H, W, C]
+        Returns:
+            Tensor with same layout as input, i.e. [B, H, W, C]
         """
-        B_, N, C = q_input.shape
-        q = self.Wq(q_input).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-        k = self.Wk(k_input).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-        v = self.Wv(v_input).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+        relative_position_bias = self.get_relative_position_bias()
 
-        if self.use_ss:
-            v_scale = self.v_scale(scale).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-            v_shift = self.v_shift(shift).reshape(B_, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-
-        q = q * self.scale
-        attn = (q @ k.transpose(-2, -1))
-
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
-        attn = attn + relative_position_bias.unsqueeze(0)
-
-        if mask is not None:
-            mask = mask.to(attn.device)
-            nW = mask.shape[0]
-            attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
-            attn = attn.view(-1, self.num_heads, N, N)
-            attn = self.softmax(attn)
+        # choose the correct V weight
+        if not self.use_different_v_weights:
+            chosen_V_weight = self.V_weight.weight
+            chosen_V_bias = self.V_weight.bias
         else:
-            attn = self.softmax(attn)
+            if key_type == V_weight_type.KEY:
+                chosen_V_weight = self.V_weight_key.weight
+                chosen_V_bias = self.V_weight_key.bias
+            elif key_type == V_weight_type.SCALE:
+                chosen_V_weight = self.V_weight_scale.weight
+                chosen_V_bias = self.V_weight_scale.bias
+            elif key_type == V_weight_type.SHIFT:
+                chosen_V_weight = self.V_weight_shift.weight
+                chosen_V_bias = self.V_weight_shift.bias
 
-        attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
-        x = self.proj_x(x)
-        x = self.proj_x_drop(x)
+        # CHANGED THIS PART FROM ORIGINAL IMPLEMENTATION
+        return shifted_window_attention(
+            input_Q=Q,
+            input_K=K,
+            input_V=V,
+            Q_weight=self.Q_weight.weight,
+            K_weight=self.K_weight.weight,
+            V_weight=chosen_V_weight,
+            proj_weight=self.proj.weight,
+            relative_position_bias=relative_position_bias,
+            window_size=self.window_size,
+            num_heads=self.num_heads,
+            shift_size=self.shift_size,
+            attention_dropout=self.attention_dropout,
+            dropout=self.dropout,
+            Q_bias=self.Q_weight.bias,
+            K_bias=self.K_weight.bias,
+            V_bias=chosen_V_bias,
+            proj_bias=self.proj.bias,
+        )
+    
 
-        if self.use_ss:
-            scale = (attn @ v_scale).transpose(1, 2).reshape(B_, N, C)
-            scale = self.proj_scale(scale)
-            scale = self.proj_scale_drop(scale)
 
-            shift = (attn @ v_shift).transpose(1, 2).reshape(B_, N, C)
-            shift = self.proj_shift(shift)
-            shift = self.proj_shift_drop(shift)
 
-        return x, scale, shift
+
+
 
 
 class StyleTransformerEncoderBlock(nn.Module):
@@ -212,9 +369,20 @@ class StyleTransformerEncoderBlock(nn.Module):
         attn_mask (torch.Tensor): Mask for attention to handle visibility between windows.
     """
 
-    def __init__(self, dim, input_resolution, num_heads, window_size=8, shift_size=4,
-                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
-                 act_layer=nn.ReLU):
+    def __init__(self,
+                 dim,
+                 input_resolution,
+                 num_heads,
+                 window_size=8,
+                 shift_size=4,
+                 mlp_ratio=4.,
+                 qkv_bias=True,
+                 qk_scale=None,
+                 proj_bias=True,
+                 drop=0.,
+                 attn_drop=0.,
+                 act_layer=nn.ReLU,
+                 use_different_v_weights=False):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
@@ -222,6 +390,7 @@ class StyleTransformerEncoderBlock(nn.Module):
         self.window_size = window_size
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
+        self.use_different_v_weights = use_different_v_weights
 
         # Adjust window and shift size based on input dimensions
         if min(self.input_resolution) <= self.window_size:
@@ -230,63 +399,25 @@ class StyleTransformerEncoderBlock(nn.Module):
         assert 0 <= self.shift_size < self.window_size, "shift_size must be in [0, window_size)"
 
         # Attention module
-        self.attn = WindowAttention(
-            dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, use_ss=True,
-            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = ShiftedWindowAttention(dim,
+                                           window_size=to_2tuple(self.window_size),
+                                           shift_size=to_2tuple(self.shift_size),
+                                           num_heads=num_heads,
+                                           qkv_bias=qkv_bias,
+                                           proj_bias=proj_bias,
+                                           attention_dropout=attn_drop,
+                                           use_different_v_weights=self.use_different_v_weights)
 
         # MLP modules for main, scale, and shift features
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp_x = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.mlp_key = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         self.mlp_scale = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         self.mlp_shift = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-        # Generate attention mask for shifted window attention if necessary
-        if self.shift_size > 0:
-            self.attn_mask = self._create_attention_mask(input_resolution)
-        else:
-            self.attn_mask = None
-
-        if not hasattr(self, 'attn_mask'):
-            self.register_buffer("attn_mask", self.attn_mask)
-        else:
-            print("attn_mask already exists")
 
 
-    def _create_attention_mask(self, input_resolution):
-        """
-        Creates an attention mask for the shifted window attention mechanism.
-        This mask helps in differentiating the shifted window positions during self-attention.
 
-        Args:
-            input_resolution (tuple): The dimensions of the input feature map (height, width).
-
-        Returns:
-            torch.Tensor: The attention mask with adjustments for shift size.
-        """
-        H, W = input_resolution
-        img_mask = torch.zeros((1, H, W, 1))
-        # Define slices for different regions of the image
-        h_slices = (slice(0, -self.window_size),
-                    slice(-self.window_size, -self.shift_size),
-                    slice(-self.shift_size, None))
-        w_slices = (slice(0, -self.window_size),
-                    slice(-self.window_size, -self.shift_size),
-                    slice(-self.shift_size, None))
-        cnt = 0
-        for h in h_slices:
-            for w in w_slices:
-                img_mask[:, h, w, :] = cnt
-                cnt += 1
-
-        # Window partitioning and attention mask generation
-        mask_windows = window_partition(img_mask, self.window_size)
-        mask_windows = mask_windows.view(-1, self.window_size * self.window_size)
-        attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
-        attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0))
-        attn_mask = attn_mask.masked_fill(attn_mask == 0, float(0.0))
-        return attn_mask
-
-    def forward(self, x, scale, shift):
+    def forward(self, key, scale, shift):
         """
         Forward pass of the StyleTransformerEncoderBlock.
 
@@ -298,126 +429,35 @@ class StyleTransformerEncoderBlock(nn.Module):
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Updated x, scale, and shift after the block processing.
         """
-        H, W = self.input_resolution
-        B, L, C = x.shape
-        assert L == H * W, "input feature has wrong size"
-        # Convert flat feature maps to spatial maps
-        shortcut_x = x
-        shortcut_scale = scale
-        shortcut_shift = shift
+        #TODO: determine if key on scale_provessed and shift_processed should be used after the residual connection or before.
 
-        x = x.view(B, H, W, C)
-        scale = scale.view(B, H, W, C)
-        shift = shift.view(B, H, W, C)
+        if self.use_different_v_weights:
+            key_processed = self.attn(key, key, key, V_weight_type.KEY)
+            scale_processed = self.attn(key, key, scale, V_weight_type.SCALE)
+            shift_processed = self.attn(key, key, shift, V_weight_type.SHIFT)
+        else:
+            key_processed = self.attn(key, key, key)
+            scale_processed = self.attn(key, key, scale)
+            shift_processed = self.attn(key, key, shift)
 
-        # Apply cyclic shift
-        if self.shift_size > 0:
-            x, scale, shift = self._apply_cyclic_shift(x, scale, shift)
+        # residual connection
+        key = key + key_processed
+        scale = scale + scale_processed
+        shift = shift + shift_processed
 
-        # Partition windows and process through attention and MLPs
-        x, scale, shift = self._process_windows(x, scale, shift, C)
-
-        # Reverse cyclic shift and merge windows
-        x, scale, shift = self._reverse_cyclic_shift(x, scale, shift, H, W, B, C)
-
-        # Apply residual connections and MLPs
-        x = x + shortcut_x
-        scale = scale + shortcut_scale
-        shift = shift + shortcut_shift
-
-        x = x + self.mlp_x(x)
+        # MLP processing with residual connection
+        key = key + self.mlp_key(key)
         scale = scale + self.mlp_scale(scale)
         shift = shift + self.mlp_shift(shift)
 
-        return x, scale, shift
 
-    def _apply_cyclic_shift(self, x, scale, shift):
-        """
-        Applies a cyclic shift to the feature maps to enable cross-window connectivity.
+        return key, scale, shift
 
-        Args:
-            x (torch.Tensor): Spatial feature map (B, H, W, C).
-            scale (torch.Tensor): Scale feature map (B, H, W, C).
-            shift (torch.Tensor): Shift feature map (B, H, W, C).
 
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Shifted feature maps.
-        """
-        shifted_x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
-        shifted_scale = torch.roll(scale, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
-        shifted_shift = torch.roll(shift, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
-        return shifted_x, shifted_scale, shifted_shift
-
-    def _process_windows(self, x, scale, shift, C):
-        """
-        Processes the feature maps through window partitioning, attention mechanism,
-        and MLPs for each component (main, scale, shift).
-
-        Args:
-            x (torch.Tensor): Shifted spatial feature map (B, H, W, C).
-            scale (torch.Tensor): Shifted scale feature map (B, H, W, C).
-            shift (torch.Tensor): Shifted shift feature map (B, H, W, C).
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Window-processed feature maps.
-        """
-        # Partition feature maps into windows
-        x_windows = window_partition(x, self.window_size)  # nW*B, window_size, window_size, C
-        scale_windows = window_partition(scale, self.window_size)  # nW*B, window_size, window_size, C
-        shift_windows = window_partition(shift, self.window_size)  # nW*B, window_size, window_size, C
-
-        # Flatten and process through attention
-        x_windows = x_windows.view(-1, self.window_size * self.window_size, C)
-        scale_windows = scale_windows.view(-1, self.window_size * self.window_size, C)
-        shift_windows = shift_windows.view(-1, self.window_size * self.window_size, C)
-
-        attn_windows, scale_attn_windows, shift_attn_windows = self.attn(
-            x_windows, x_windows, x_windows, scale_windows, shift_windows, mask=self.attn_mask)
-        
-        attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
-        scale_attn_windows = scale_attn_windows.view(-1, self.window_size, self.window_size, C)
-        shift_attn_windows = shift_attn_windows.view(-1, self.window_size, self.window_size, C)
-
-        return attn_windows, scale_attn_windows, shift_attn_windows
-
-    def _reverse_cyclic_shift(self, attn_windows, scale_attn_windows, shift_attn_windows, H, W, B, C):
-        """
-        Reverses the cyclic shift applied earlier and merges the windows back into full feature maps.
-
-        Args:
-            attn_windows (torch.Tensor): Attended feature windows (nW*B, window_size, window_size, C).
-            scale_attn_windows (torch.Tensor): Attended scale windows (nW*B, window_size, window_size, C).
-            shift_attn_windows (torch.Tensor): Attended shift windows (nW*B, window_size, window_size, C).
-            H (int): Height of the input feature map.
-            W (int): Width of the input feature map.
-            B (int): Batch size.
-            C (int): Number of channels.
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Reversed and merged feature maps.
-        """
-        # Reverse cyclic shift and merge windows back to feature maps
-        if self.shift_size > 0:
-            shifted_x = window_reverse(attn_windows, self.window_size, H, W)  # B H' W' C
-            x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
-
-            shifted_scale = window_reverse(scale_attn_windows, self.window_size, H, W)  # B H' W' C
-            scale = torch.roll(shifted_scale, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
-
-            shifted_shift = window_reverse(shift_attn_windows, self.window_size, H, W)  # B H' W' C
-            shift = torch.roll(shifted_shift, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
-        else:
-            x = window_reverse(attn_windows, self.window_size, H, W)
-            scale = window_reverse(scale_attn_windows, self.window_size, H, W)
-            shift = window_reverse(shift_attn_windows, self.window_size, H, W)
-
-        x = x.view(B, H * W, C)
-        scale = scale.view(B, H * W, C)
-        shift = shift.view(B, H * W, C)
-
-        return x, scale, shift
 
 class StyleTransformerDecoderBlock(nn.Module):
+
+
     """
     Implements a decoder block for a Style Transformer, which combines content and style features to generate
     stylized outputs. This block uses a shifted window based multi-head self-attention mechanism for processing
@@ -451,7 +491,7 @@ class StyleTransformerDecoderBlock(nn.Module):
     """
 
     def __init__(self, dim, input_resolution, num_heads, window_size=8, shift_size=4,
-                 mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
+                 mlp_ratio=4., qkv_bias=True, proj_bias=True, qk_scale=None, drop=0., attn_drop=0.,
                  act_layer=nn.ReLU):
         super().__init__()
         self.dim = dim
@@ -467,69 +507,42 @@ class StyleTransformerDecoderBlock(nn.Module):
             self.window_size = min(self.input_resolution)
         assert 0 <= self.shift_size < self.window_size, "shift_size must be in [0, window_size)"
 
-        # Attention module
-        self.self_attn = WindowAttention(
-            dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, use_ss=False,
-            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        # Attention module for content
+        self.attn_for_content = ShiftedWindowAttention(dim,
+                                           window_size=to_2tuple(self.window_size),
+                                           shift_size=to_2tuple(self.shift_size),
+                                           num_heads=num_heads,
+                                           qkv_bias=qkv_bias,
+                                           proj_bias=proj_bias,
+                                           attention_dropout=attn_drop,
+                                           use_different_v_weights=False)
         
-        self.cross_attn = WindowAttention(
-            dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, use_ss=True,
-            qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        # Attention module for scale and shift
+        self.attn_for_scale_and_shift = ShiftedWindowAttention(dim,
+                                           window_size=to_2tuple(self.window_size),
+                                           shift_size=to_2tuple(self.shift_size),
+                                           num_heads=num_heads,
+                                           qkv_bias=qkv_bias,
+                                           proj_bias=proj_bias,
+                                           attention_dropout=attn_drop,
+                                           use_different_v_weights=False)
+        
 
-        # MLP module for output
+
+        # MLP module for content
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.mlp_content = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+
+        # last MLP after scale and shift
+        self.mlp_last = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
         # Instance normalization layers for content and style features
         self.norm_content = nn.InstanceNorm2d(dim)
         self.norm_style = nn.InstanceNorm2d(dim)
 
-        # Generate attention mask for shifted window attention if necessary
-        if self.shift_size > 0:
-            self.attn_mask = self._create_attention_mask(input_resolution)
-        else:
-            self.attn_mask = None
 
-        if not hasattr(self, 'attn_mask'):
-            self.register_buffer("attn_mask", self.attn_mask)
-        else:
-            print("attn_mask already exists")
 
-    def _create_attention_mask(self, input_resolution):
-        """
-        Creates an attention mask for the shifted window attention mechanism.
-        This mask helps in differentiating the shifted window positions during attention.
-
-        Args:
-            input_resolution (tuple): The dimensions of the input feature map (height, width).
-
-        Returns:
-            torch.Tensor: The attention mask with adjustments for shift size.
-        """
-        H, W = input_resolution
-        img_mask = torch.zeros((1, H, W, 1))
-        # Define slices for different regions of the image
-        h_slices = (slice(0, -self.window_size),
-                    slice(-self.window_size, -self.shift_size),
-                    slice(-self.shift_size, None))
-        w_slices = (slice(0, -self.window_size),
-                    slice(-self.window_size, -self.shift_size),
-                    slice(-self.shift_size, None))
-        cnt = 0
-        for h in h_slices:
-            for w in w_slices:
-                img_mask[:, h, w, :] = cnt
-                cnt += 1
-
-        # Window partitioning and attention mask generation
-        mask_windows = window_partition(img_mask, self.window_size)
-        mask_windows = mask_windows.view(-1, self.window_size * self.window_size)
-        attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
-        attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0))
-        attn_mask = attn_mask.masked_fill(attn_mask == 0, float(0.0))
-        return attn_mask
-
-    def forward(self, content, style, scale, shift):
+    def forward(self, content, key, scale, shift):
         """
         Forward pass of the StyleTransformerDecoderBlock.
 
@@ -543,169 +556,84 @@ class StyleTransformerDecoderBlock(nn.Module):
         Returns:
             torch.Tensor: The transformed content features, which have been stylized by the given style, scale, and shift parameters.
         """
-        H, W = self.input_resolution
-        B, L, C = content.shape
-        assert L == H * W, "input feature has wrong size"
-        # Convert flat feature maps to spatial maps
-        shortcut_content = content
+        # process content features through self attention with residual connection
+        content = content + self.attn_for_content(content, content, content)
 
-        content = content.view(B, H, W, C)
-        style = style.view(B, H, W, C)
-        scale = scale.view(B, H, W, C)
-        shift = shift.view(B, H, W, C)
+        # process content features through MLP with residual connection
+        content = content + self.mlp_content(content)
 
-        # Apply cyclic shift for self attention
-        if self.shift_size > 0:
-            content, _, _, _ = self._apply_cyclic_shift(content, cross=False)
+        # apply instance normalization to content and key features by permuting N, W, W, C to N, C, H, W
+        content_IN = self.norm_content(content.permute(0, 3, 1, 2))
+        key_IN = self.norm_style(key.permute(0, 3, 1, 2))
 
-        # Partition content windows and process through attention
-        content, _, _ = self._process_windows(content, C, cross=False)
+        # invert permutation
+        content_IN = content_IN.permute(0, 2, 3, 1)
+        key_IN = key_IN.permute(0, 2, 3, 1)
 
-        # Reverse cyclic shift and merge windows
-        content, _, _ = self._reverse_cyclic_shift(content, H, W, B, C, cross=False)
+        # process scale and shift features through attention
+        sigma = self.attn_for_scale_and_shift(content_IN, key_IN, scale)
+        mu = self.attn_for_scale_and_shift(content_IN, key_IN, shift)
 
-        # Apply residual connection
-        content = content + shortcut_content # F' = F + MHA(F)
-        content = content.view(B, H, W, C)
 
-        # Apply instance normalizations
-        content_norm = self.norm_content(content)
-        style_norm = self.norm_style(style)
+        # apply scale and shift to content features
+        content = content * sigma + mu
 
-        # Apply cyclic shift for cross attention
-        if self.shift_size > 0:
-            content_norm, style_norm, scale, shift = self._apply_cyclic_shift(content_norm, cross=True, style=style_norm, scale=scale, shift=shift)
 
-        # Partition content windows and process through attention
-        content_norm, scale, shift = self._process_windows(content_norm, C, cross=True, style=style_norm, scale=scale, shift=shift)
+        # process content features through last MLP with residual connection
+        content = content + self.mlp_last(content)
 
-        # Reverse cyclic shift and merge windows
-        content_norm, scale, shift = self._reverse_cyclic_shift(content_norm, H, W, B, C, cross=True, scale_attn_windows=scale, shift_attn_windows=shift)
-
-        # Apply scale and shift transformations to content (scale dot content + shift)
-        content = (content_norm * scale) + shift #F'' = F' * S + M
-
-        # Apply MLP and residual connections to output
-        content = self.mlp(content) + content #F = MLP(F'') + F''
+        
 
         return content
+    
 
-    def _apply_cyclic_shift(self, content, cross=False, style=None, scale=None, shift=None):
-        """
-        Applies a cyclic shift to the feature maps to enable cross-window connectivity.
 
-        Args:
-            content (torch.Tensor): Spatial feature map (B, H, W, C).
-            cross (bool): If True, applies cross-attention instead of self-attention.
-            style (torch.Tensor): Style feature map (B, H, W, C).
-            scale (torch.Tensor): Scale feature map (B, H, W, C).
-            shift (torch.Tensor): Shift feature map (B, H, W, C).
 
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: Shifted feature maps.
-        """
-        shifted_content = torch.roll(content, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
 
-        if cross:
-            shifted_style = torch.roll(style, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
-            shifted_scale = torch.roll(scale, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
-            shifted_shift = torch.roll(shift, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
-        else:
-            shifted_style = None
-            shifted_scale = None
-            shifted_shift = None
 
-        return shifted_content, shifted_style, shifted_scale, shifted_shift
+if __name__ == "__main__":
+    # Test the StyleTransformerEncoderBlock
+    block_encoder = StyleTransformerEncoderBlock(dim=256,
+                                         input_resolution=(16, 16),
+                                         num_heads=8,
+                                         window_size=8,
+                                         shift_size=4,
+                                         mlp_ratio=4.,
+                                         qkv_bias=True,
+                                         qk_scale=None,
+                                         proj_bias=True,
+                                         drop=0.,
+                                         attn_drop=0.,
+                                         act_layer=nn.ReLU)
+                                         
+    # Test with B, H, W, C input
+    key = torch.randn(4, 32, 32, 256)
+    scale = torch.randn(4, 32, 32, 256)
+    shift = torch.randn(4, 32, 32, 256)
 
-    def _process_windows(self, content, C, cross=False, style=None, scale=None, shift=None):
-        """
-        Processes the feature maps through window partitioning, attention mechanism,
-        and MLPs for each component (main, scale, shift).
+    key, scale, shift = block_encoder(key, scale, shift)
 
-        Args:
-            content (torch.Tensor): Shifted spatial feature map (B, H, W, C).
-            C (int): Number of dimensions in the input feature maps.
-            cross (bool): If True, applies cross-attention instead of self-attention.
-            style (torch.Tensor): Shifted style feature map (B, H, W, C).
-            scale (torch.Tensor): Shifted scale feature map (B, H, W, C).
-            shift (torch.Tensor): Shifted shift feature map (B, H, W, C).
+    print("Encoder output shape:")
+    print(key.shape, scale.shape, shift.shape)
+    print()
 
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Window-processed feature maps.
-        """
-        # Partition feature maps into windows
-        content_windows = window_partition(content, self.window_size)  # nW*B, window_size, window_size, C
-        if cross:
-            style_windows = window_partition(style, self.window_size)  # nW*B, window_size, window_size, C
-            scale_windows = window_partition(scale, self.window_size)  # nW*B, window_size, window_size, C
-            shift_windows = window_partition(shift, self.window_size)  # nW*B, window_size, window_size, C
+    # Test the StyleTransformerDecoderBlock
+    block_decoder = StyleTransformerDecoderBlock(dim=256,
+                                         input_resolution=(16, 16),
+                                         num_heads=8,
+                                         window_size=8,
+                                         shift_size=4,
+                                         mlp_ratio=4.,
+                                         qkv_bias=True,
+                                         qk_scale=None,
+                                         proj_bias=True,
+                                         drop=0.,
+                                         attn_drop=0.,
+                                         act_layer=nn.ReLU)
+    
+    # Test with B, H, W, C input
+    content = torch.randn(4, 32, 32, 256)
 
-        # Flatten and process through attention
-        content_windows = content_windows.view(-1, self.window_size * self.window_size, C)
-        if cross:
-            style_windows = style_windows.view(-1, self.window_size * self.window_size, C)
-            scale_windows = scale_windows.view(-1, self.window_size * self.window_size, C)
-            shift_windows = shift_windows.view(-1, self.window_size * self.window_size, C)
-
-        if cross:
-            attn_windows, scale_attn_windows, shift_attn_windows = self.cross_attn(
-                content_windows, style_windows, content_windows, scale_windows,
-                  shift_windows, mask=self.attn_mask)
-        else:
-            attn_windows, _, _ = self.self_attn(
-                content_windows, content_windows, content_windows, mask=self.attn_mask)
-
-        attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
-        if cross:
-            scale_attn_windows = scale_attn_windows.view(-1, self.window_size, self.window_size, C)
-            shift_attn_windows = shift_attn_windows.view(-1, self.window_size, self.window_size, C)
-        else:
-            scale_attn_windows = None
-            shift_attn_windows = None
-
-        return attn_windows, scale_attn_windows, shift_attn_windows
-
-    def _reverse_cyclic_shift(self, attn_windows, H, W, B, C, cross=False, scale_attn_windows=None, shift_attn_windows=None):
-        """
-        Reverses the cyclic shift applied earlier and merges the windows back into full feature maps.
-
-        Args:
-            attn_windows (torch.Tensor): Attended feature windows (nW*B, window_size, window_size, C).
-            H (int): Height of the input feature map.
-            W (int): Width of the input feature map.
-            B (int): Batch size.
-            C (int): Number of channels.
-            cross (bool): If True, applies cross-attention instead of self-attention.
-            scale_attn_windows (torch.Tensor): Attended scale windows (nW*B, window_size, window_size, C).
-            shift_attn_windows (torch.Tensor): Attended shift windows (nW*B, window_size, window_size, C).
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Reversed and merged feature maps.
-        """
-        # Reverse cyclic shift and merge windows back to feature maps
-        if self.shift_size > 0:
-            shifted_content = window_reverse(attn_windows, self.window_size, H, W)  # B H' W' C
-            content = torch.roll(shifted_content, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
-
-            if cross:
-                shifted_scale = window_reverse(scale_attn_windows, self.window_size, H, W)  # B H' W' C
-                scale = torch.roll(shifted_scale, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
-
-                shifted_shift = window_reverse(shift_attn_windows, self.window_size, H, W)  # B H' W' C
-                shift = torch.roll(shifted_shift, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
-        else:
-            content = window_reverse(attn_windows, self.window_size, H, W)
-
-            if cross:
-                scale = window_reverse(scale_attn_windows, self.window_size, H, W)
-                shift = window_reverse(shift_attn_windows, self.window_size, H, W)
-
-        content = content.view(B, H * W, C)
-        if cross:
-            scale = scale.view(B, H * W, C)
-            shift = shift.view(B, H * W, C)
-        else:
-            scale = None
-            shift = None
-
-        return content, scale, shift
+    content = block_decoder(content, key, scale, shift)
+    print("Decoder output shape:")
+    print(content.shape, scale.shape, shift.shape)

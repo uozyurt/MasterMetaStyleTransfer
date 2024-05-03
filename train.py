@@ -57,10 +57,12 @@ class Train:
         self.mlp_ratio = config.mlp_ratio
         self.qkv_bias = config.qkv_bias
         self.qk_scale = config.qk_scale
+        self.proj_bias = config.proj_bias
         self.drop = config.drop
         self.attn_drop = config.attn_drop
         self.act_layer = config.act_layer
         self.freeze_encoder = config.freeze_encoder
+        self.use_different_v_weights = config.use_different_v_weights
 
         # Hyperparameters
         self.inner_lr = config.inner_lr
@@ -88,13 +90,16 @@ class Train:
             mlp_ratio=self.mlp_ratio,
             qkv_bias=self.qkv_bias,
             qk_scale=self.qk_scale,
+            proj_bias=self.proj_bias,
             drop=self.drop,
-            attn_drop=self.attn_drop
+            attn_drop=self.attn_drop,
+            act_layer=self.act_layer,
+            use_different_v_weights=self.use_different_v_weights
         )
 
         self.swin_encoder = SwinEncoder(
             relative_model_path=self.encoder_model_path,
-            freeze_params=self.freeze_encoder
+            freeze_params=self.freeze_encoder,
         )
 
         self.decoder = StyleDecoder()
@@ -120,6 +125,14 @@ class Train:
                 elif 'bias' in name:
                     torch.nn.init.constant_(param, 0)
 
+        
+        # initialize the style transformer with truncated normal initialization
+        for name, param in self.style_transformer.named_parameters():
+            if 'weight' in name:
+                torch.nn.init.trunc_normal_(param, std=0.02)
+            elif 'bias' in name:
+                torch.nn.init.constant_(param, 0)
+
 
 
 
@@ -129,6 +142,8 @@ class Train:
         self.decoder.train()
         if not self.freeze_encoder:
             self.swin_encoder.train()
+        else:
+            self.swin_encoder.eval()
 
 
 
@@ -235,7 +250,7 @@ class Train:
 
             # print the iteration count if verbose is True
             if self.verbose:
-                print(f"Iteration: {iteration:>10}/{self.max_iterations}")
+                print(f"\nIteration: {iteration:>10}/{self.max_iterations}")
 
             # Sample a style image
             style_image = (next(wikiart_iterator)).to(self.device)
@@ -362,9 +377,12 @@ if __name__ == '__main__':
     parser.add_argument('--mlp_ratio', type=float, default=4.0, help='Expansion ratio for the MLP block compared to the number of input channels.')
     parser.add_argument('--qkv_bias', type=bool, default=True, help='Add a learnable bias to query, key, value projections.')
     parser.add_argument('--qk_scale', type=float, default=None, help='Custom scaling factor for query-key dot products in attention.')
+    parser.add_argument('--proj_bias', type=bool, default=True, help='Add a learnable bias to the projection weights.')
     parser.add_argument('--drop', type=float, default=0.0, help='Dropout rate applied to the output of the MLP block.')
     parser.add_argument('--attn_drop', type=float, default=0.0, help='Dropout rate applied to attention weights.')
-    parser.add_argument('--act_layer', type=str, default='nn.ReLU', help='Activation function used in the MLP block.')
+    parser.add_argument('--act_layer', type=str, default=torch.nn.ReLU, help='Activation function used in the MLP block.')
+    parser.add_argument('--use_different_v_weights', type=bool, default=False,
+                        help='Use different weights for the value projection in the attention mechanism of the style encoder.')
 
     # SwinEncoder parameters
     parser.add_argument('--encoder_model_path', type=str, default='weights/swin_B_first_2_stages.pt', help='Path where the Swin model is saved or should be saved.')
