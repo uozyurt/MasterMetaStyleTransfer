@@ -78,41 +78,41 @@ class StyleDecoder(nn.Module):
     In Proceedings of the IEEE International Conference on Computer Vision (pp. 1501-1510).
     """
 
-    def __init__(self):
+    def __init__(self, channel_dim=256):
         super().__init__()
 
         self.decoder = nn.Sequential(
-            nn.Conv2d(256, 128, (3, 3), padding=(1, 1), padding_mode='reflect'),
+            nn.Conv2d(channel_dim, channel_dim//2, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
 
             nn.Upsample(scale_factor=2, mode='nearest'),
 
-            nn.Conv2d(128, 128, (3, 3), padding=(1, 1), padding_mode='reflect'),
+            nn.Conv2d(channel_dim//2, channel_dim//2, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
 
-            nn.Conv2d(128, 128, (3, 3), padding=(1, 1), padding_mode='reflect'),
+            nn.Conv2d(channel_dim//2, channel_dim//2, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
 
-            nn.Conv2d(128, 128, (3, 3), padding=(1, 1), padding_mode='reflect'),
+            nn.Conv2d(channel_dim//2, channel_dim//2, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
 
-            nn.Conv2d(128, 64, (3, 3), padding=(1, 1), padding_mode='reflect'),
+            nn.Conv2d(channel_dim//2, channel_dim//4, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
 
             nn.Upsample(scale_factor=2, mode='nearest'),
 
-            nn.Conv2d(64, 64, (3, 3), padding=(1, 1), padding_mode='reflect'),
+            nn.Conv2d(channel_dim//4, channel_dim//4, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
 
-            nn.Conv2d(64, 32, (3, 3), padding=(1, 1), padding_mode='reflect'),
+            nn.Conv2d(channel_dim//4, channel_dim//8, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
             
             nn.Upsample(scale_factor=2, mode='nearest'),
 
-            nn.Conv2d(32, 32, (3, 3), padding=(1, 1), padding_mode='reflect'),
+            nn.Conv2d(channel_dim//8, channel_dim//8, (3, 3), padding=(1, 1), padding_mode='reflect'),
             nn.ReLU(),
 
-            nn.Conv2d(32, 3, (3, 3), padding=(1, 1), padding_mode='reflect'),
+            nn.Conv2d(channel_dim//8, 3, (3, 3), padding=(1, 1), padding_mode='reflect'),
         )
 
     def forward(self, x):

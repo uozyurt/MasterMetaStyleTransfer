@@ -98,7 +98,7 @@ class Train:
             freeze_params=self.freeze_encoder
         )
 
-        self.decoder = StyleDecoder()
+        self.decoder = StyleDecoder(channel_dim=self.dim)
 
         # Send models to device
         self.style_transformer.to(self.device)
@@ -117,7 +117,7 @@ class Train:
             # initialize the decoder with kaiming (he) uniform initialization
             for name, param in self.decoder.named_parameters():
                 if 'weight' in name:
-                    torch.nn.init.kaiming_uniform_(param, a=0, nonlinearity='relu')
+                    torch.nn.init.kaiming_normal_(param, a=0, nonlinearity='relu')
                 elif 'bias' in name:
                     torch.nn.init.constant_(param, 0)
 
@@ -203,11 +203,9 @@ class Train:
         if not os.path.exists(self.model_save_path):
             os.makedirs(self.model_save_path)
 
-
         # create dataset objects
         coco_train_dataset_object = coco_train_dataset(self.project_root, self.coco_dataset_path)
         wikiart_dataset_object = wikiart_dataset(self.project_root, self.wikiart_dataset_path)
-
 
         # Initialize Dataloaders
         if not self.use_infinite_sampler:
@@ -234,8 +232,8 @@ class Train:
                                             num_workers=self.num_workers,
                                             pin_memory=self.pin_memory,
                                             sampler=InfiniteSampler(wikiart_dataset_object))
-            
         
+
         # create dataloader iterators
         coco_iterator = iter(coco_dataloader)
         wikiart_iterator = iter(wikiart_dataloader)
@@ -271,12 +269,14 @@ class Train:
                 style_image_batch = torch.cat((style_image.repeat((self.batch_size_content // self.batch_size_style), 1, 1, 1),
                                               style_image[:self.batch_size_content % self.batch_size_style]),
                                               dim=0)
+                
 
-            # load the models parameters to omega parameters without creating a new object
+            # load the transformer and decoder from main weights
             omega_style_transformer.load_state_dict(self.style_transformer.state_dict())
             omega_decoder.load_state_dict(self.decoder.state_dict())
             if not self.freeze_encoder:
                 omega_encoder.load_state_dict(self.swin_encoder.state_dict())
+
 
 
 
