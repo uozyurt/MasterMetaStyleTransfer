@@ -1,5 +1,3 @@
-import math
-from functools import partial
 from typing import Any, Callable, List, Optional
 
 import torch
@@ -9,9 +7,8 @@ from torch import nn, Tensor
 from torchvision.ops.stochastic_depth import StochasticDepth
 
 
-from torchvision.ops.misc import MLP, Permute
+from torchvision.ops.misc import MLP
 from torchvision.ops.stochastic_depth import StochasticDepth
-from torchvision.transforms._presets import ImageClassification, InterpolationMode
 
 from copy import deepcopy
 
@@ -699,33 +696,48 @@ class StyleDecoder(nn.Module):
             mu = self.MHA_for_mu(Query_IN, Key, Shift)
 
         else:
+            Query_prev_shape = Query.shape # save the shape of Query before reshaping
+            Query = Query.view(Query.shape[0], Query.shape[1] * Query.shape[2], Query.shape[3])
+            Key = Key.view(Key.shape[0], Key.shape[1] * Key.shape[2], Key.shape[3])
+            Scale = Scale.view(Scale.shape[0], Scale.shape[1] * Scale.shape[2], Scale.shape[3])
+            Shift = Shift.view(Shift.shape[0], Shift.shape[1] * Shift.shape[2], Shift.shape[3])
+
             if self.decoder_use_Key_instance_norm_after_linear_transformation:
 
                 Key = self.linear_transformation_Key(Key)
                 
                 # apply instance normalization
                 if self.decoder_use_instance_norm_with_affine:
-                    Query_IN = self.instance_norm_Query(Query.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
-                    Key = self.instance_norm_Key(Key.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                    Query_IN = self.instance_norm_Query(Query.permute(0, 2, 1)).permute(0, 2, 1)
+                    Key = self.instance_norm_Key(Key.permute(0, 2, 1)).permute(0, 2, 1)
                 else:
-                    Query_IN = self.instance_norm(Query.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
-                    Key = self.instance_norm(Key.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                    Query_IN = self.instance_norm(Query.permute(0, 2, 1)).permute(0, 2, 1)
+                    Key = self.instance_norm(Key.permute(0, 2, 1)).permute(0, 2, 1)
+
+                Scale = self.linear_transformation_Scale(Scale)
+                Shift = self.linear_transformation_Shift(Shift)
             else:
 
                 # apply instance normalization
                 if self.decoder_use_instance_norm_with_affine:
-                    Query_IN = self.instance_norm_Query(Query.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
-                    Key = self.instance_norm_Key(Key.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                    Query_IN = self.instance_norm_Query(Query.permute(0, 2, 1)).permute(0, 2, 1)
+                    Key = self.instance_norm_Key(Key.permute(0, 2, 1)).permute(0, 2, 1)
                 else:
-                    Query_IN = self.instance_norm(Query.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
-                    Key = self.instance_norm(Key.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                    Query_IN = self.instance_norm(Query.permute(0, 2, 1)).permute(0, 2, 1)
+                    Key = self.instance_norm(Key.permute(0, 2, 1)).permute(0, 2, 1)
 
                 Key = self.linear_transformation_Key(Key)
+                Scale = self.linear_transformation_Scale(Scale)
+                Shift = self.linear_transformation_Shift(Shift)
+
+
+            Query = Query.view(Query_prev_shape)
             
-            Scale = self.linear_transformation_Scale(Scale)
-            Shift = self.linear_transformation_Shift(Shift)
+
 
             # apply MHA manually
+
+            print(Query_IN.shape[-1])
 
             # scale the query
             Query_IN = Query_IN * (Query_IN.shape[-1] ** -0.5)
@@ -850,8 +862,8 @@ class StyleTransformer(nn.Module):
                 k: int = 1):
         
         
-        Scale = deepcopy(Fs)
-        Shift = deepcopy(Fs)
+        Scale = Fs
+        Shift = Fs
         
         for i in range(k):
             Fs, Scale, Shift = self.encoder(Fs, Scale, Shift)
