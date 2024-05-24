@@ -191,13 +191,13 @@ class ShiftedWindowAttention(nn.Module):
     def __init__(
         self,
         dim: int,
+        num_heads: int,
         window_size: List[int],
         shift_size: List[int],
-        num_heads: int,
+        dropout: float = 0.0,
+        attention_dropout: float = 0.0,
         qkv_bias: bool = True,
         proj_bias: bool = True,
-        attention_dropout: float = 0.0,
-        dropout: float = 0.0,
     ):
         super().__init__()
         if len(window_size) != 2 or len(shift_size) != 2:
@@ -338,6 +338,7 @@ class StyleSwinTransformerBlock(nn.Module):
         mlp_ratio: float = 4.0,
         stochastic_depth_prob: float = 0.0,
         norm_layer: Callable[..., nn.Module] = nn.LayerNorm,
+        MLP_activation_layer: Optional[nn.Module] = nn.GELU,
         use_MLP_from_outside: bool = False, # ADDED (to able not using the MLP as shared in the style encoder)
     ):
         super().__init__()
@@ -368,14 +369,13 @@ class StyleSwinTransformerBlock(nn.Module):
         self.use_MLP_from_outside = use_MLP_from_outside
 
         if not self.use_MLP_from_outside:
-            self.mlp = MLP(dim, [int(dim * mlp_ratio), dim], activation_layer=nn.GELU, inplace=None, dropout=dropout)
+            self.mlp = MLP(dim, [int(dim * mlp_ratio), dim], activation_layer=MLP_activation_layer, inplace=None, dropout=dropout)
 
-
-        for m in self.mlp.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.normal_(m.bias, std=1e-6)
+            for m in self.mlp.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    if m.bias is not None:
+                        nn.init.normal_(m.bias, std=1e-6)
 
 
 
@@ -421,16 +421,18 @@ class StyleEncoder(nn.Module):
     """
     The StyleEncoder part from the proposed Style Transformer module.
     Args:
-        in_channels (int): Number of input channels.
-        out_channels (int): Number of output channels.
-        num_heads (int): Number of attention heads.
-        window_size (List[int]): Window size.
-        shift_size (List[int]): Shift size for shifted window attention.
-        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim. Default: 4.0.
-        dropout (float): Dropout rate. Default: 0.0.
-        attention_dropout (float): Attention dropout rate. Default: 0.0.
-        stochastic_depth_prob: (float): Stochastic depth rate. Default: 0.0.
-        norm_layer (nn.Module): Normalization layer.  Default: None. (no normalization layer since the paper states it is harmful in the style encoder)
+        encoder_in_channels (int): Number of input channels.
+        encoder_out_channels (int): Number of output channels.
+        encoder_num_heads (int): Number of attention heads.
+        encoder_window_size (List[int]): Window size.
+        encoder_shift_size (List[int]): Shift size for shifted window attention.
+        encoder_mlp_ratio (float): Ratio of mlp hidden dim to embedding dim. Default: 4.0.
+        encoder_dropout (float): Dropout rate. Default: 0.0.
+        encoder_attention_dropout (float): Attention dropout rate. Default: 0.0.
+        encoder_stochastic_depth_prob: (float): Stochastic depth rate. Default: 0.0.
+        encoder_norm_layer (nn.Module): Normalization layer.  Default: None. (no normalization layer since the paper states it is harmful in the style encoder)
+        encoder_MLP_activation_layer (nn.Module): Activation layer for the MLP. Default: nn.GELU.
+        encoder_if_use_processed_Key_in_Scale_and_Shift_calculation: (bool): If True, the processed Key will be used in the Scale and Shift calculation. Default: True.
     """
 
     def __init__(
@@ -442,20 +444,19 @@ class StyleEncoder(nn.Module):
         encoder_mlp_ratio: float = 4.0,
         encoder_dropout: float = 0.0,
         encoder_attention_dropout: float = 0.0,
+        encoder_qkv_bias: bool = True,
+        encoder_proj_bias: bool = True,
         encoder_stochastic_depth_prob: float = 0.1,
         encoder_norm_layer: Callable[..., nn.Module] = None,
-        encoder_use_MLP_from_outside: bool = True,
-        if_use_processed_Key_in_Scale_and_Shift_calculation: bool = True,
+        encoder_MLP_activation_layer: Optional[nn.Module] = nn.GELU,
+        encoder_if_use_processed_Key_in_Scale_and_Shift_calculation: bool = True,
     ):
+        
         
         super().__init__()
         
-        self.if_use_processed_Key_in_Scale_and_Shift_calculation = if_use_processed_Key_in_Scale_and_Shift_calculation
+        self.if_use_processed_Key_in_Scale_and_Shift_calculation = encoder_if_use_processed_Key_in_Scale_and_Shift_calculation
         
-        if encoder_use_MLP_from_outside:
-            self.encoder_MLP_Key = MLP(encoder_dim, [int(encoder_dim * encoder_mlp_ratio), encoder_dim], activation_layer=nn.GELU, inplace=None, dropout=encoder_dropout)
-            self.encoder_MLP_Scale = MLP(encoder_dim, [int(encoder_dim * encoder_mlp_ratio), encoder_dim], activation_layer=nn.GELU, inplace=None, dropout=encoder_dropout)
-            self.encoder_MLP_Shift = MLP(encoder_dim, [int(encoder_dim * encoder_mlp_ratio), encoder_dim], activation_layer=nn.GELU, inplace=None, dropout=encoder_dropout)
 
 
         self.MHA_shared_attn = StyleSwinTransformerBlock(
@@ -465,80 +466,195 @@ class StyleEncoder(nn.Module):
             shift_size = encoder_shift_size,
             dropout = encoder_dropout,
             attention_dropout = encoder_attention_dropout,
-            qkv_bias = True,
-            proj_bias = True,
+            qkv_bias = encoder_qkv_bias,
+            proj_bias = encoder_proj_bias,
             mlp_ratio = encoder_mlp_ratio,
             stochastic_depth_prob = encoder_stochastic_depth_prob,
             norm_layer = encoder_norm_layer,
-            use_MLP_from_outside = encoder_use_MLP_from_outside,
+            MLP_activation_layer = encoder_MLP_activation_layer,
+            use_MLP_from_outside = True,
         )
+        
 
-        if encoder_use_MLP_from_outside:
-            for m in [self.encoder_MLP_Key.modules(), self.encoder_MLP_Scale.modules(), self.encoder_MLP_Shift.modules()]:
-                if isinstance(m, nn.Linear):
-                    nn.init.xavier_uniform_(m.weight)
-                    if m.bias is not None:
-                        nn.init.normal_(m.bias, std=1e-6)
+
+        self.encoder_MLP_Key = MLP(encoder_dim, [int(encoder_dim * encoder_mlp_ratio), encoder_dim], activation_layer=encoder_MLP_activation_layer, inplace=None, dropout=encoder_dropout)
+        self.encoder_MLP_Scale = MLP(encoder_dim, [int(encoder_dim * encoder_mlp_ratio), encoder_dim], activation_layer=encoder_MLP_activation_layer, inplace=None, dropout=encoder_dropout)
+        self.encoder_MLP_Shift = MLP(encoder_dim, [int(encoder_dim * encoder_mlp_ratio), encoder_dim], activation_layer=encoder_MLP_activation_layer, inplace=None, dropout=encoder_dropout)
+
+
+
+
+
+        for m in [self.encoder_MLP_Key.modules(), self.encoder_MLP_Scale.modules(), self.encoder_MLP_Shift.modules()]:
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.normal_(m.bias, std=1e-6)
+
 
     
     def forward(self, Key: Tensor, Scale: Tensor, Shift: Tensor):
 
-        if self.encoder_use_MLP_from_outside:
+        if self.if_use_processed_Key_in_Scale_and_Shift_calculation:
+            # calculate the Key first, then use this calculated Key to calculate Scale and Shift
+            Key = self.MHA_shared_attn(
+                input_q = Key,
+                input_k = Key,
+                input_v = Key,
+                MLP_input = self.encoder_MLP_Key,
+                calculating_Key_in_encoder = True
+            )
 
-            if self.if_use_processed_Key_in_Scale_and_Shift_calculation:
-                # calculate the Key first, then use this calculated Key to calculate Scale and Shift
-                Key = self.MHA_shared_attn(
-                    Key,
-                    Key,
-                    Key,
-                    self.encoder_MLP_Key,
-                    calculating_Key_in_encoder=True
-                )
+            Scale = self.MHA_shared_attn(
+                input_q = Key,
+                input_k = Key,
+                input_v = Scale,
+                MLP_input = self.encoder_MLP_Scale,
+                calculating_Key_in_encoder = False
+            )
 
-                Scale = self.MHA_shared_attn(
-                    Key,
-                    Key,
-                    Scale,
-                    self.encoder_MLP_Scale,
-                    calculating_Key_in_encoder=False
-                )
+            Shift = self.MHA_shared_attn(
+                input_q = Key,
+                input_k = Key,
+                input_v = Shift,
+                MLP_input = self.encoder_MLP_Shift,
+                calculating_Key_in_encoder = False
+            )
+        else:
+            # calculate Scale (using unprocessed Key)
+            Scale = self.MHA_shared_attn(
+                input_q = Key,
+                input_k = Key,
+                input_v = Scale,
+                MLP_input = self.encoder_MLP_Scale,
+                calculating_Key_in_encoder = False
+            )
 
-                Shift = self.MHA_shared_attn(
-                    Key,
-                    Key,
-                    Shift,
-                    self.encoder_MLP_Shift,
-                    calculating_Key_in_encoder=False
-                )
-            else:
-                # calculate Scale (using unprocessed Key)
-                Scale = self.MHA_shared_attn(
-                    Key,
-                    Key,
-                    Scale,
-                    self.encoder_MLP_Scale,
-                    calculating_Key_in_encoder=False
-                )
+            # calculate Shift (using unprocessed Key)
+            Shift = self.MHA_shared_attn(
+                input_q = Key,
+                input_k = Key,
+                input_v = Shift,
+                MLP_input = self.encoder_MLP_Shift,
+                calculating_Key_in_encoder = False
+            )
 
-                # calculate Shift (using unprocessed Key)
-                Shift = self.MHA_shared_attn(
-                    Key,
-                    Key,
-                    Shift,
-                    self.encoder_MLP_Shift,
-                    calculating_Key_in_encoder=False
-                )
-
-                # calculate Key lastly
-                Key = self.MHA_shared_attn(
-                    Key,
-                    Key,
-                    Key,
-                    self.encoder_MLP_Key,
-                    calculating_Key_in_encoder=True
-                )
+            # calculate Key lastly
+            Key = self.MHA_shared_attn(
+                input_q = Key,
+                input_k = Key,
+                input_v = Key,
+                MLP_input = self.encoder_MLP_Key,
+                calculating_Key_in_encoder = True
+            )
+            
+        return Key, Scale, Shift
 
 
+
+
+
+class StyleDecoder(nn.Module):
+    """
+    The StyleDecoder part from the proposed Style Transformer module.
+    Args:
+        decoder_dim (int): Number of input channels.
+        decoder_num_heads (int): Number of attention heads.
+        decoder_window_size (List[int]): Window size.
+        decoder_shift_size (List[int]): Shift size for shifted window attention.
+        decoder_mlp_ratio (float): Ratio of mlp hidden dim to embedding dim. Default: 4.0.
+        decoder_dropout (float): Dropout rate. Default: 0.0.
+        decoder_attention_dropout (float): Attention dropout rate. Default: 0.0.
+        decoder_stochastic_depth_prob: (float): Stochastic depth rate. Default: 0.0.
+        decoder_norm_layer (nn.Module): Normalization layer.  Default: None. (no normalization layer since the paper states it is harmful in the style encoder)
+    """
+
+
+    def __init__(
+        self,
+        decoder_dim: int,
+        decoder_num_heads: int,
+        decoder_window_size: List[int],
+        decoder_shift_size: List[int],
+        decoder_mlp_ratio: float = 4.0,
+        decoder_dropout: float = 0.0,
+        decoder_attention_dropout: float = 0.0,
+        decoder_qkv_bias: bool = True,
+        decoder_proj_bias: bool = True,
+        decoder_stochastic_depth_prob: float = 0.1,
+        decoder_norm_layer: Callable[..., nn.Module] = nn.LayerNorm,
+        decoder_MLP_activation_layer: Optional[nn.Module] = nn.GELU,
+        decoder_use_instance_norm_with_affine: bool = False,
+        decoder_use_regular_MHA_instead_of_Swin_at_the_end: bool = False,
+        decoder_use_Key_instance_norm_after_linear_transformation: bool = True,
+    ):
+        super().__init__()
+
+        self.decoder_use_instance_norm_with_affine = decoder_use_instance_norm_with_affine
+        self.decoder_use_regular_MHA_instead_of_Swin_at_the_end = decoder_use_regular_MHA_instead_of_Swin_at_the_end
+        self.decoder_use_Key_instance_norm_after_linear_transformation = decoder_use_Key_instance_norm_after_linear_transformation
+        
+        if decoder_norm_layer is not None:
+            self.norm1 = decoder_norm_layer(decoder_dim)
+            self.norm2 = decoder_norm_layer(decoder_dim)
+            self.use_norm = True
+        else:
+            self.use_norm = False
+
+
+        self.MHA_self_attn = StyleSwinTransformerBlock(
+            dim = decoder_dim,
+            num_heads = decoder_num_heads,
+            window_size = decoder_window_size,
+            shift_size = decoder_shift_size,
+            dropout = decoder_dropout,
+            attention_dropout = decoder_attention_dropout,
+            qkv_bias = decoder_qkv_bias,
+            proj_bias = decoder_proj_bias,
+            mlp_ratio = decoder_mlp_ratio,
+            stochastic_depth_prob = decoder_stochastic_depth_prob,
+            norm_layer = decoder_norm_layer,
+            MLP_activation_layer = decoder_MLP_activation_layer,
+            use_MLP_from_outside = False,
+        )
+
+        if self.decoder_use_instance_norm_with_affine:
+            self.instance_norm_Query = nn.InstanceNorm2d(decoder_dim, affine=True)
+            self.instance_norm_Key = nn.InstanceNorm2d(decoder_dim, affine=True)
+        else:
+            self.instance_norm = nn.InstanceNorm2d(decoder_dim, affine=False)
+
+
+        if not self.decoder_use_regular_MHA_instead_of_Swin_at_the_end:
+            self.MHA_shared_attn = StyleSwinTransformerBlock(
+                dim = decoder_dim,
+                num_heads = decoder_num_heads,
+                window_size = decoder_window_size,
+                shift_size = decoder_shift_size,
+                dropout = decoder_dropout,
+                attention_dropout = decoder_attention_dropout,
+                qkv_bias = decoder_qkv_bias,
+                proj_bias = decoder_proj_bias,
+                mlp_ratio = decoder_mlp_ratio,
+                stochastic_depth_prob = decoder_stochastic_depth_prob,
+                norm_layer = decoder_norm_layer,
+                MLP_activation_layer = decoder_MLP_activation_layer,
+                use_MLP_from_outside = False,
+            )
+        else:
+            self.linear_transformation_Key = nn.Linear(decoder_dim, decoder_dim)
+            self.linear_transformation_Scale = nn.Linear(decoder_dim, decoder_dim)
+            self.linear_transformation_Shift = nn.Linear(decoder_dim, decoder_dim)
+
+        
+            for m in [self.linear_transformation_Key.modules(), self.linear_transformation_Scale.modules(), self.linear_transformation_Shift.modules()]:
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    if m.bias is not None:
+                        nn.init.normal_(m.bias, std=1e-6)
+        
+
+        
 
 
 
@@ -565,6 +681,33 @@ if __name__ == "__main__":
 
     print(f"Input shape of the StyleSwinTransformerBlock block: {x.shape}")
     print(f"Output shape of the StyleSwinTransformerBlock block: {out.shape}")
+    print("\n")
+
+
+
+    # try the StyleEncoder
+    encoder = StyleEncoder(encoder_dim=256,
+                           encoder_num_heads=8,
+                           encoder_window_size=[8, 8],
+                           encoder_shift_size=[4, 4],
+                           encoder_mlp_ratio=4.0,
+                           encoder_dropout=0.0,
+                           encoder_attention_dropout=0.0,
+                           encoder_stochastic_depth_prob=0.1,
+                           encoder_norm_layer=None,
+                           if_use_processed_Key_in_Scale_and_Shift_calculation=True)
+    
+
+    Key = torch.randn(1, 32, 32, 256)
+    Scale = torch.randn(1, 32, 32, 256)
+    Shift = torch.randn(1, 32, 32, 256)
+
+    print(f"Input shape of the StyleEncoder: \nKey: {Key.shape}\nScale: {Scale.shape}\nShift: {Shift.shape}\n")
+    
+    Key, Scale, Shift = encoder(Key, Scale, Shift)
+
+    print(f"Output shape of the StyleEncoder:  \nKey: {Key.shape}\nScale: {Scale.shape}\nShift: {Shift.shape}")
+    print("\n")
     
 
 
