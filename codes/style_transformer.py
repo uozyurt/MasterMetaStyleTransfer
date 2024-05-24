@@ -13,7 +13,7 @@ from torchvision.ops.misc import MLP, Permute
 from torchvision.ops.stochastic_depth import StochasticDepth
 from torchvision.transforms._presets import ImageClassification, InterpolationMode
 
-
+from copy import deepcopy
 
 
 
@@ -339,7 +339,7 @@ class StyleSwinTransformerBlock(nn.Module):
         stochastic_depth_prob: float = 0.0,
         norm_layer: Callable[..., nn.Module] = nn.LayerNorm,
         MLP_activation_layer: Optional[nn.Module] = nn.GELU,
-        use_MLP_from_outside: bool = False, # ADDED (to able not using the MLP as shared in the style encoder)
+        exclude_MLP_after: bool = False, # ADDED (to able not using the MLP as shared in the style encoder)
     ):
         super().__init__()
 
@@ -366,9 +366,9 @@ class StyleSwinTransformerBlock(nn.Module):
         self.stochastic_depth = StochasticDepth(stochastic_depth_prob, "row")
 
 
-        self.use_MLP_from_outside = use_MLP_from_outside
+        self.exclude_MLP_after = exclude_MLP_after
 
-        if not self.use_MLP_from_outside:
+        if not self.exclude_MLP_after:
             self.mlp = MLP(dim, [int(dim * mlp_ratio), dim], activation_layer=MLP_activation_layer, inplace=None, dropout=dropout)
 
             for m in self.mlp.modules():
@@ -387,7 +387,7 @@ class StyleSwinTransformerBlock(nn.Module):
                 calculating_Key_in_encoder: bool = None): # CHANGED FROM ORIGINAL CODE (x -> input_q, input_k, input_v) and ADDED MLP_input
         
         # determine the residual connection input
-        if (calculating_Key_in_encoder == True) or (self.use_MLP_from_outside == False):
+        if (calculating_Key_in_encoder == True) or (self.exclude_MLP_after == False):
             x = input_q # if we are calculating the key in the encoder or not using cross-attention, the input_q will be used as the residual connection input
         else:
             x = input_v # if we are calculating Scale or Shift, the input_v will be used as the residual connection input (both Scale and Shift are in V position of the MHA)
@@ -395,18 +395,13 @@ class StyleSwinTransformerBlock(nn.Module):
 
         if self.use_norm:
             x = x + self.stochastic_depth(self.attn(self.norm1(input_q), self.norm1(input_k), self.norm1(input_v)))
-            if not self.use_MLP_from_outside:
+            if not self.exclude_MLP_after:
                 x = x + self.stochastic_depth(self.mlp(self.norm2(x)))
-            else:
-                assert MLP_input is not None, "If you want to use the MLP from outside, you should provide the MLP_input"
-                x = x + self.stochastic_depth(MLP_input(self.norm2(x)))
+            
         else:
             x = x + self.stochastic_depth(self.attn(input_q, input_k, input_v))
-            if not self.use_MLP_from_outside:
+            if not self.exclude_MLP_after:
                 x = x + self.stochastic_depth(self.mlp(x))
-            else:
-                assert MLP_input is not None, "If you want to use the MLP from outside, you should provide the MLP_input"
-                x = x + self.stochastic_depth(MLP_input(x))
         return x
 
 
@@ -456,10 +451,12 @@ class StyleEncoder(nn.Module):
         super().__init__()
         
         self.if_use_processed_Key_in_Scale_and_Shift_calculation = encoder_if_use_processed_Key_in_Scale_and_Shift_calculation
+
+        self.encoder_stochastic_depth_prob = encoder_stochastic_depth_prob
         
+        self.stochastic_depth = StochasticDepth(encoder_stochastic_depth_prob, "row")
 
-
-        self.MHA_shared_attn = StyleSwinTransformerBlock(
+        self.shared_MHA_without_MLP = StyleSwinTransformerBlock(
             dim = encoder_dim,
             num_heads = encoder_num_heads,
             window_size = encoder_window_size,
@@ -472,7 +469,7 @@ class StyleEncoder(nn.Module):
             stochastic_depth_prob = encoder_stochastic_depth_prob,
             norm_layer = encoder_norm_layer,
             MLP_activation_layer = encoder_MLP_activation_layer,
-            use_MLP_from_outside = True,
+            exclude_MLP_after = True,
         )
         
 
@@ -497,7 +494,7 @@ class StyleEncoder(nn.Module):
 
         if self.if_use_processed_Key_in_Scale_and_Shift_calculation:
             # calculate the Key first, then use this calculated Key to calculate Scale and Shift
-            Key = self.MHA_shared_attn(
+            Key = self.shared_MHA_without_MLP(
                 input_q = Key,
                 input_k = Key,
                 input_v = Key,
@@ -505,7 +502,7 @@ class StyleEncoder(nn.Module):
                 calculating_Key_in_encoder = True
             )
 
-            Scale = self.MHA_shared_attn(
+            Scale = self.shared_MHA_without_MLP(
                 input_q = Key,
                 input_k = Key,
                 input_v = Scale,
@@ -513,7 +510,7 @@ class StyleEncoder(nn.Module):
                 calculating_Key_in_encoder = False
             )
 
-            Shift = self.MHA_shared_attn(
+            Shift = self.shared_MHA_without_MLP(
                 input_q = Key,
                 input_k = Key,
                 input_v = Shift,
@@ -522,7 +519,7 @@ class StyleEncoder(nn.Module):
             )
         else:
             # calculate Scale (using unprocessed Key)
-            Scale = self.MHA_shared_attn(
+            Scale = self.shared_MHA_without_MLP(
                 input_q = Key,
                 input_k = Key,
                 input_v = Scale,
@@ -531,7 +528,7 @@ class StyleEncoder(nn.Module):
             )
 
             # calculate Shift (using unprocessed Key)
-            Shift = self.MHA_shared_attn(
+            Shift = self.shared_MHA_without_MLP(
                 input_q = Key,
                 input_k = Key,
                 input_v = Shift,
@@ -540,13 +537,17 @@ class StyleEncoder(nn.Module):
             )
 
             # calculate Key lastly
-            Key = self.MHA_shared_attn(
+            Key = self.shared_MHA_without_MLP(
                 input_q = Key,
                 input_k = Key,
                 input_v = Key,
                 MLP_input = self.encoder_MLP_Key,
                 calculating_Key_in_encoder = True
             )
+
+        Key = Key + self.stochastic_depth(self.encoder_MLP_Key(Key))
+        Scale = Scale + self.stochastic_depth(self.encoder_MLP_Scale(Scale))
+        Shift = Shift + self.stochastic_depth(self.encoder_MLP_Shift(Shift))
             
         return Key, Scale, Shift
 
@@ -590,16 +591,14 @@ class StyleDecoder(nn.Module):
     ):
         super().__init__()
 
+        self.decoder_dim = decoder_dim
+        self.decoder_num_heads = decoder_num_heads
+        self.decoder_mlp_ratio = decoder_mlp_ratio
+        self.decoder_MLP_activation_layer = decoder_MLP_activation_layer
+
         self.decoder_use_instance_norm_with_affine = decoder_use_instance_norm_with_affine
         self.decoder_use_regular_MHA_instead_of_Swin_at_the_end = decoder_use_regular_MHA_instead_of_Swin_at_the_end
         self.decoder_use_Key_instance_norm_after_linear_transformation = decoder_use_Key_instance_norm_after_linear_transformation
-        
-        if decoder_norm_layer is not None:
-            self.norm1 = decoder_norm_layer(decoder_dim)
-            self.norm2 = decoder_norm_layer(decoder_dim)
-            self.use_norm = True
-        else:
-            self.use_norm = False
 
 
         self.MHA_self_attn = StyleSwinTransformerBlock(
@@ -615,9 +614,10 @@ class StyleDecoder(nn.Module):
             stochastic_depth_prob = decoder_stochastic_depth_prob,
             norm_layer = decoder_norm_layer,
             MLP_activation_layer = decoder_MLP_activation_layer,
-            use_MLP_from_outside = False,
+            exclude_MLP_after = False,
         )
 
+        # apply instance normalization
         if self.decoder_use_instance_norm_with_affine:
             self.instance_norm_Query = nn.InstanceNorm2d(decoder_dim, affine=True)
             self.instance_norm_Key = nn.InstanceNorm2d(decoder_dim, affine=True)
@@ -625,8 +625,13 @@ class StyleDecoder(nn.Module):
             self.instance_norm = nn.InstanceNorm2d(decoder_dim, affine=False)
 
 
+        self.stochastic_depth = StochasticDepth(decoder_stochastic_depth_prob, "row")
+
+        self.last_MLP = MLP(decoder_dim, [int(decoder_dim * decoder_mlp_ratio), decoder_dim], activation_layer=decoder_MLP_activation_layer, inplace=None, dropout=decoder_dropout)
+
+
         if not self.decoder_use_regular_MHA_instead_of_Swin_at_the_end:
-            self.MHA_shared_attn = StyleSwinTransformerBlock(
+            self.MHA_for_sigma = StyleSwinTransformerBlock(
                 dim = decoder_dim,
                 num_heads = decoder_num_heads,
                 window_size = decoder_window_size,
@@ -637,21 +642,224 @@ class StyleDecoder(nn.Module):
                 proj_bias = decoder_proj_bias,
                 mlp_ratio = decoder_mlp_ratio,
                 stochastic_depth_prob = decoder_stochastic_depth_prob,
-                norm_layer = decoder_norm_layer,
+                norm_layer = None,
                 MLP_activation_layer = decoder_MLP_activation_layer,
-                use_MLP_from_outside = False,
+                exclude_MLP_after = True,
             )
+
+            self.MHA_for_mu = StyleSwinTransformerBlock(
+                dim = decoder_dim,
+                num_heads = decoder_num_heads,
+                window_size = decoder_window_size,
+                shift_size = decoder_shift_size,
+                dropout = decoder_dropout,
+                attention_dropout = decoder_attention_dropout,
+                qkv_bias = decoder_qkv_bias,
+                proj_bias = decoder_proj_bias,
+                mlp_ratio = decoder_mlp_ratio,
+                stochastic_depth_prob = decoder_stochastic_depth_prob,
+                norm_layer = None,
+                MLP_activation_layer = decoder_MLP_activation_layer,
+                exclude_MLP_after = True,
+            )
+
         else:
             self.linear_transformation_Key = nn.Linear(decoder_dim, decoder_dim)
             self.linear_transformation_Scale = nn.Linear(decoder_dim, decoder_dim)
             self.linear_transformation_Shift = nn.Linear(decoder_dim, decoder_dim)
 
-        
-            for m in [self.linear_transformation_Key.modules(), self.linear_transformation_Scale.modules(), self.linear_transformation_Shift.modules()]:
+            self.proj_sigma = nn.Linear(decoder_dim, decoder_dim)
+            self.proj_mu = nn.Linear(decoder_dim, decoder_dim)
+
+
+
+            for m in self.last_MLP.modules():
                 if isinstance(m, nn.Linear):
                     nn.init.xavier_uniform_(m.weight)
                     if m.bias is not None:
                         nn.init.normal_(m.bias, std=1e-6)
+
+        
+
+    def forward(self, Fcs: Tensor, Key: Tensor, Scale: Tensor, Shift: Tensor):
+
+        Query = self.MHA_self_attn(Fcs, Fcs, Fcs)
+
+        if not self.decoder_use_regular_MHA_instead_of_Swin_at_the_end:
+
+            # apply instance normalization
+            if self.decoder_use_instance_norm_with_affine:
+                Query_IN = self.instance_norm_Query(Query.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                Key = self.instance_norm_Key(Key.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+            else:
+                Query_IN = self.instance_norm(Query.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                Key = self.instance_norm(Key.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+            
+            sigma = self.MHA_for_sigma(Query_IN, Key, Scale)
+            mu = self.MHA_for_mu(Query_IN, Key, Shift)
+
+        else:
+            if self.decoder_use_Key_instance_norm_after_linear_transformation:
+
+                Key = self.linear_transformation_Key(Key)
+                
+                # apply instance normalization
+                if self.decoder_use_instance_norm_with_affine:
+                    Query_IN = self.instance_norm_Query(Query.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                    Key = self.instance_norm_Key(Key.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                else:
+                    Query_IN = self.instance_norm(Query.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                    Key = self.instance_norm(Key.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+            else:
+
+                # apply instance normalization
+                if self.decoder_use_instance_norm_with_affine:
+                    Query_IN = self.instance_norm_Query(Query.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                    Key = self.instance_norm_Key(Key.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                else:
+                    Query_IN = self.instance_norm(Query.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+                    Key = self.instance_norm(Key.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
+
+                Key = self.linear_transformation_Key(Key)
+            
+            Scale = self.linear_transformation_Scale(Scale)
+            Shift = self.linear_transformation_Shift(Shift)
+
+            # apply MHA manually
+
+            # scale the query
+            Query_IN = Query_IN * (Query_IN.shape[-1] ** -0.5)
+
+            attn = F.softmax(torch.matmul(Query, Key.transpose(-2, -1)), dim=-1)
+
+            sigma = torch.matmul(attn, Scale)
+            mu = torch.matmul(attn, Shift)
+
+            # project sigma and mu
+            sigma = self.proj_sigma(sigma)
+            mu = self.proj_mu(mu)
+
+        
+        # scale and shift the query with sigma and mu
+        Query = Query * sigma + mu
+
+        Query = Query + self.stochastic_depth(self.last_MLP(Query))
+
+        # return the Query (new Fcs)
+        return Query
+
+
+
+
+class StyleTransformer(nn.Module):
+    """
+    The proposed Style Transformer module.
+    Args:
+        encoder_dim (int): Number of input channels for the encoder.
+        encoder_num_heads (int): Number of attention heads for the encoder.
+        encoder_window_size (List[int]): Window size for the encoder.
+        encoder_shift_size (List[int]): Shift size for shifted window attention for the encoder.
+        encoder_mlp_ratio (float): Ratio of mlp hidden dim to embedding dim for the encoder. Default: 4.0.
+        encoder_dropout (float): Dropout rate for the encoder. Default: 0.0.
+        encoder_attention_dropout (float): Attention dropout rate for the encoder. Default: 0.0.
+        encoder_stochastic_depth_prob: (float): Stochastic depth rate for the encoder. Default: 0.0.
+        encoder_norm_layer (nn.Module): Normalization layer for the encoder.  Default: None. (no normalization layer since the paper states it is harmful in the style encoder)
+        encoder_MLP_activation_layer (nn.Module): Activation layer for the MLP in the encoder. Default: nn.GELU.
+        encoder_if_use_processed_Key_in_Scale_and_Shift_calculation: (bool): If True, the processed Key will be used in the Scale and Shift calculation. Default: True.
+        decoder_dim (int): Number of input channels for the decoder.
+        decoder_num_heads (int): Number of attention heads for the decoder.
+        decoder_window_size (List[int]): Window size for the decoder.
+        decoder_shift_size (List[int]): Shift size for shifted window attention for the decoder.
+        decoder_mlp_ratio (float): Ratio of mlp hidden dim to embedding dim for the decoder. Default: 4.0.
+        decoder_dropout (float): Dropout rate for the decoder. Default: 0.0.
+        decoder_attention_dropout (float): Attention dropout rate for the decoder. Default: 0.0.
+        decoder_stochastic_depth_prob: (float): Stochastic depth rate for the decoder. Default: 0.0.
+        decoder_norm_layer (nn.Module): Normalization layer for the decoder.  Default: None. (no normalization layer since the paper states it is harmful in the style encoder)
+    """
+
+    def __init__(
+        self,
+        encoder_dim: int,
+        decoder_dim: int,
+        encoder_num_heads: int,
+        decoder_num_heads: int,
+        encoder_window_size: List[int],
+        decoder_window_size: List[int],
+        encoder_shift_size: List[int],
+        decoder_shift_size: List[int],
+        encoder_mlp_ratio: float = 4.0,
+        decoder_mlp_ratio: float = 4.0,
+        encoder_dropout: float = 0.0,
+        decoder_dropout: float = 0.0,
+        encoder_attention_dropout: float = 0.0,
+        decoder_attention_dropout: float = 0.0,
+        encoder_qkv_bias: bool = True,
+        decoder_qkv_bias: bool = True,
+        encoder_proj_bias: bool = True,
+        decoder_proj_bias: bool = True,
+        encoder_stochastic_depth_prob: float = 0.1,
+        decoder_stochastic_depth_prob: float = 0.1,
+        encoder_norm_layer: Callable[..., nn.Module] = None,
+        decoder_norm_layer: Callable[..., nn.Module] = nn.LayerNorm,
+        encoder_MLP_activation_layer: Optional[nn.Module] = nn.GELU,
+        decoder_MLP_activation_layer: Optional[nn.Module] = nn.GELU,
+        encoder_if_use_processed_Key_in_Scale_and_Shift_calculation: bool = True,
+        decoder_use_instance_norm_with_affine: bool = False,
+        decoder_use_regular_MHA_instead_of_Swin_at_the_end: bool = False,
+        decoder_use_Key_instance_norm_after_linear_transformation: bool = True,
+    ):
+        super().__init__()
+
+        self.encoder = StyleEncoder(
+            encoder_dim = encoder_dim,
+            encoder_num_heads = encoder_num_heads,
+            encoder_window_size = encoder_window_size,
+            encoder_shift_size = encoder_shift_size,
+            encoder_mlp_ratio = encoder_mlp_ratio,
+            encoder_dropout = encoder_dropout,
+            encoder_attention_dropout = encoder_attention_dropout,
+            encoder_qkv_bias = encoder_qkv_bias,
+            encoder_proj_bias = encoder_proj_bias,
+            encoder_stochastic_depth_prob = encoder_stochastic_depth_prob,
+            encoder_norm_layer = encoder_norm_layer,
+            encoder_MLP_activation_layer = encoder_MLP_activation_layer,
+            encoder_if_use_processed_Key_in_Scale_and_Shift_calculation = encoder_if_use_processed_Key_in_Scale_and_Shift_calculation,
+        )
+
+        self.decoder = StyleDecoder(
+            decoder_dim = decoder_dim,
+            decoder_num_heads = decoder_num_heads,
+            decoder_window_size = decoder_window_size,
+            decoder_shift_size = decoder_shift_size,
+            decoder_mlp_ratio = decoder_mlp_ratio,
+            decoder_dropout = decoder_dropout,
+            decoder_attention_dropout = decoder_attention_dropout,
+            decoder_qkv_bias = decoder_qkv_bias,
+            decoder_proj_bias = decoder_proj_bias,
+            decoder_stochastic_depth_prob = decoder_stochastic_depth_prob,
+            decoder_norm_layer = decoder_norm_layer,
+            decoder_MLP_activation_layer = decoder_MLP_activation_layer,
+            decoder_use_instance_norm_with_affine = decoder_use_instance_norm_with_affine,
+            decoder_use_regular_MHA_instead_of_Swin_at_the_end = decoder_use_regular_MHA_instead_of_Swin_at_the_end,
+            decoder_use_Key_instance_norm_after_linear_transformation = decoder_use_Key_instance_norm_after_linear_transformation
+        )
+
+    def forward(self,
+                Fc: Tensor,
+                Fs: Tensor,
+                k: int = 1):
+        
+        
+        Scale = deepcopy(Fs)
+        Shift = deepcopy(Fs)
+        
+        for i in range(k):
+            Fs, Scale, Shift = self.encoder(Fs, Scale, Shift)
+            Fc = self.decoder(Fc, Fs, Scale, Shift)
+
+        return Fc
+    
+                
         
 
         
@@ -674,7 +882,7 @@ if __name__ == "__main__":
                                       mlp_ratio=4.0,
                                       stochastic_depth_prob=0.1,
                                       norm_layer=nn.LayerNorm,
-                                      use_MLP_from_outside=False)
+                                      exclude_MLP_after=False)
     
     x = torch.randn(1, 32, 32, 256)
     out = block(x, x, x)
@@ -695,7 +903,7 @@ if __name__ == "__main__":
                            encoder_attention_dropout=0.0,
                            encoder_stochastic_depth_prob=0.1,
                            encoder_norm_layer=None,
-                           if_use_processed_Key_in_Scale_and_Shift_calculation=True)
+                           encoder_if_use_processed_Key_in_Scale_and_Shift_calculation=True)
     
 
     Key = torch.randn(1, 32, 32, 256)
@@ -710,9 +918,70 @@ if __name__ == "__main__":
     print("\n")
     
 
+    # try the StyleDecoder
+    decoder = StyleDecoder(decoder_dim=256,
+                           decoder_num_heads=8,
+                           decoder_window_size=[8, 8],
+                           decoder_shift_size=[4, 4],
+                           decoder_mlp_ratio=4.0,
+                           decoder_dropout=0.0,
+                           decoder_attention_dropout=0.0,
+                           decoder_qkv_bias=True,
+                           decoder_proj_bias=True,
+                           decoder_stochastic_depth_prob=0.1,
+                           decoder_norm_layer=nn.LayerNorm,
+                           decoder_MLP_activation_layer=nn.GELU,
+                           decoder_use_instance_norm_with_affine=False,
+                           decoder_use_regular_MHA_instead_of_Swin_at_the_end=False,
+                           decoder_use_Key_instance_norm_after_linear_transformation=True)
+    
+    Fcs = torch.randn(1, 32, 32, 256)
+
+    out = decoder(Fcs, Key, Scale, Shift)
+
+    print(f"Input shape of the StyleDecoder: \nFcs: {Fcs.shape}\nKey: {Key.shape}\nScale: {Scale.shape}\nShift: {Shift.shape}\n")
+
+    print(f"Output shape of the StyleDecoder: {out.shape}")
 
 
 
+    # try the StyleTransformer
+    transformer = StyleTransformer(encoder_dim=256,
+                                   decoder_dim=256,
+                                   encoder_num_heads=8,
+                                   decoder_num_heads=8,
+                                   encoder_window_size=[8, 8],
+                                   decoder_window_size=[8, 8],
+                                   encoder_shift_size=[4, 4],
+                                   decoder_shift_size=[4, 4],
+                                   encoder_mlp_ratio=4.0,
+                                   decoder_mlp_ratio=4.0,
+                                   encoder_dropout=0.0,
+                                   decoder_dropout=0.0,
+                                   encoder_attention_dropout=0.0,
+                                   decoder_attention_dropout=0.0,
+                                   encoder_qkv_bias=True,
+                                   decoder_qkv_bias=True,
+                                   encoder_proj_bias=True,
+                                   decoder_proj_bias=True,
+                                   encoder_stochastic_depth_prob=0.1,
+                                   decoder_stochastic_depth_prob=0.1,
+                                   encoder_norm_layer=None,
+                                   decoder_norm_layer=nn.LayerNorm,
+                                   encoder_MLP_activation_layer=nn.GELU,
+                                   decoder_MLP_activation_layer=nn.GELU,
+                                   encoder_if_use_processed_Key_in_Scale_and_Shift_calculation=True,
+                                   decoder_use_instance_norm_with_affine=False,
+                                   decoder_use_regular_MHA_instead_of_Swin_at_the_end=False,
+                                   decoder_use_Key_instance_norm_after_linear_transformation=True)
+    
+    Fc = torch.randn(1, 32, 32, 256)
+    Fs = torch.randn(1, 32, 32, 256)
+
+    out = transformer(Fc, Fs, k=1)
+
+    print(f"Input shape of the StyleTransformer: \nFc: {Fc.shape}\nFs: {Fs.shape}\n")
+    print(f"Output shape of the StyleTransformer: {out.shape}")
 
 
 
