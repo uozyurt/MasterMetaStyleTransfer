@@ -54,7 +54,6 @@ def shifted_window_attention(
     k_bias: Optional[Tensor] = None, # CHANGED FROM ORIGINAL CODE (qkv_bias -> k_bias)
     v_bias: Optional[Tensor] = None, # CHANGED FROM ORIGINAL CODE (qkv_bias -> v_bias)
     proj_bias: Optional[Tensor] = None,
-    logit_scale: Optional[torch.Tensor] = None,
 ):
     """
     Window based multi-head self attention (W-MSA) module with relative position bias.
@@ -79,8 +78,15 @@ def shifted_window_attention(
     # pad feature maps to multiples of window size
     pad_r = (window_size[1] - W % window_size[1]) % window_size[1]
     pad_b = (window_size[0] - H % window_size[0]) % window_size[0]
-    x = F.pad(input_q, (0, 0, 0, pad_r, 0, pad_b))
-    _, pad_H, pad_W, _ = x.shape
+
+
+    ### CHANGE FROM ORIGINAL CODE, START ###
+    
+    input_q = F.pad(input_q, (0, 0, 0, pad_r, 0, pad_b))
+    input_k = F.pad(input_k, (0, 0, 0, pad_r, 0, pad_b))
+    input_v = F.pad(input_v, (0, 0, 0, pad_r, 0, pad_b))
+    
+    _, pad_H, pad_W, _ = input_q.shape
 
     shift_size = shift_size.copy()
     # If window size is larger than feature size, there is no need to shift window
@@ -91,54 +97,54 @@ def shifted_window_attention(
 
     # cyclic shift
     if sum(shift_size) > 0:
-        x = torch.roll(x, shifts=(-shift_size[0], -shift_size[1]), dims=(1, 2))
+        input_q = torch.roll(input_q, shifts=(-shift_size[0], -shift_size[1]), dims=(1, 2))
+        input_k = torch.roll(input_k, shifts=(-shift_size[0], -shift_size[1]), dims=(1, 2))
+        input_v = torch.roll(input_v, shifts=(-shift_size[0], -shift_size[1]), dims=(1, 2))
 
     # partition windows
     num_windows = (pad_H // window_size[0]) * (pad_W // window_size[1])
-    x = x.view(B, pad_H // window_size[0], window_size[0], pad_W // window_size[1], window_size[1], C)
-    x = x.permute(0, 1, 3, 2, 4, 5).reshape(B * num_windows, window_size[0] * window_size[1], C)  # B*nW, Ws*Ws, C
+    
+    input_q = input_q.view(B, pad_H // window_size[0], window_size[0], pad_W // window_size[1], window_size[1], C)
+    input_k = input_k.view(B, pad_H // window_size[0], window_size[0], pad_W // window_size[1], window_size[1], C)
+    input_v = input_v.view(B, pad_H // window_size[0], window_size[0], pad_W // window_size[1], window_size[1], C)
+    
+    input_q = input_q.permute(0, 1, 3, 2, 4, 5).reshape(B * num_windows, window_size[0] * window_size[1], C)  # B*nW, Ws*Ws, C
+    input_k = input_k.permute(0, 1, 3, 2, 4, 5).reshape(B * num_windows, window_size[0] * window_size[1], C)  # B*nW, Ws*Ws, C
+    input_v = input_v.permute(0, 1, 3, 2, 4, 5).reshape(B * num_windows, window_size[0] * window_size[1], C)  # B*nW, Ws*Ws, C
 
     # multi-head attention
-    if logit_scale is not None and qkv_bias is not None:
-        qkv_bias = qkv_bias.clone()
-        length = qkv_bias.numel() // 3
-        qkv_bias[length : 2 * length].zero_()
+    q = F.linear(input_q, q_weight, q_bias)
+    k = F.linear(input_k, k_weight, k_bias)
+    v = F.linear(input_v, v_weight, v_bias)
 
 
+    q = q.reshape(q.size(0), q.size(1), num_heads, C // num_heads).permute(0, 2, 1, 3)
+    k = k.reshape(k.size(0), k.size(1), num_heads, C // num_heads).permute(0, 2, 1, 3)
+    v = v.reshape(v.size(0), v.size(1), num_heads, C // num_heads).permute(0, 2, 1, 3)
 
-    ### CHANGE FROM ORIGINAL CODE, START ###
 
-    # qkv = F.linear(x, qkv_weight, qkv_bias)
+    q = F.linear(input_q, q_weight, q_bias)
+    k = F.linear(input_k, k_weight, k_bias)
+    v = F.linear(input_v, v_weight, v_bias)
 
-    # use seperate linear layers for q, k, v to allow cross-attention
-    q = F.linear(x, q_weight, q_bias)
-    k = F.linear(x, k_weight, k_bias)
-    v = F.linear(x, v_weight, v_bias)
 
-    q = q.reshape(x.size(0), x.size(1), 1, num_heads, C // num_heads).permute(2, 0, 3, 1, 4)
-    k = k.reshape(x.size(0), x.size(1), 1, num_heads, C // num_heads).permute(2, 0, 3, 1, 4)
-    v = v.reshape(x.size(0), x.size(1), 1, num_heads, C // num_heads).permute(2, 0, 3, 1, 4)
-
+    q = q.reshape(q.size(0), q.size(1), num_heads, C // num_heads).permute(0, 2, 1, 3)
+    k = k.reshape(k.size(0), k.size(1), num_heads, C // num_heads).permute(0, 2, 1, 3)
+    v = v.reshape(v.size(0), v.size(1), num_heads, C // num_heads).permute(0, 2, 1, 3)
 
     ### CHANGE FROM ORIGINAL CODE, END ###
 
+    # scale query
+    q = q * (C // num_heads) ** -0.5
 
 
-    
-    if logit_scale is not None:
-        # cosine attention
-        attn = F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1)
-        logit_scale = torch.clamp(logit_scale, max=math.log(100.0)).exp()
-        attn = attn * logit_scale
-    else:
-        q = q * (C // num_heads) ** -0.5
-        attn = q.matmul(k.transpose(-2, -1))
+    attn = q.matmul(k.transpose(-2, -1))
     # add relative position bias
     attn = attn + relative_position_bias
 
     if sum(shift_size) > 0:
         # generate attention mask
-        attn_mask = x.new_zeros((pad_H, pad_W))
+        attn_mask = input_q.new_zeros((pad_H, pad_W))
         h_slices = ((0, -window_size[0]), (-window_size[0], -shift_size[0]), (-shift_size[0], None))
         w_slices = ((0, -window_size[1]), (-window_size[1], -shift_size[1]), (-shift_size[1], None))
         count = 0
@@ -150,14 +156,14 @@ def shifted_window_attention(
         attn_mask = attn_mask.permute(0, 2, 1, 3).reshape(num_windows, window_size[0] * window_size[1])
         attn_mask = attn_mask.unsqueeze(1) - attn_mask.unsqueeze(2)
         attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
-        attn = attn.view(x.size(0) // num_windows, num_windows, num_heads, x.size(1), x.size(1))
+        attn = attn.view(input_q.size(0) // num_windows, num_windows, num_heads, input_q.size(1), input_q.size(1))
         attn = attn + attn_mask.unsqueeze(1).unsqueeze(0)
-        attn = attn.view(-1, num_heads, x.size(1), x.size(1))
+        attn = attn.view(-1, num_heads, input_q.size(1), input_q.size(1))
 
     attn = F.softmax(attn, dim=-1)
     attn = F.dropout(attn, p=attention_dropout)
 
-    x = attn.matmul(v).transpose(1, 2).reshape(x.size(0), x.size(1), C)
+    x = attn.matmul(v).transpose(1, 2).reshape(input_q.size(0), input_q.size(1), C)
     x = F.linear(x, proj_weight, proj_bias)
     x = F.dropout(x, p=dropout)
 
@@ -411,6 +417,130 @@ class StyleSwinTransformerBlock(nn.Module):
 
 
 
+class StyleEncoder(nn.Module):
+    """
+    The StyleEncoder part from the proposed Style Transformer module.
+    Args:
+        in_channels (int): Number of input channels.
+        out_channels (int): Number of output channels.
+        num_heads (int): Number of attention heads.
+        window_size (List[int]): Window size.
+        shift_size (List[int]): Shift size for shifted window attention.
+        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim. Default: 4.0.
+        dropout (float): Dropout rate. Default: 0.0.
+        attention_dropout (float): Attention dropout rate. Default: 0.0.
+        stochastic_depth_prob: (float): Stochastic depth rate. Default: 0.0.
+        norm_layer (nn.Module): Normalization layer.  Default: None. (no normalization layer since the paper states it is harmful in the style encoder)
+    """
+
+    def __init__(
+        self,
+        encoder_dim: int,
+        encoder_num_heads: int,
+        encoder_window_size: List[int],
+        encoder_shift_size: List[int],
+        encoder_mlp_ratio: float = 4.0,
+        encoder_dropout: float = 0.0,
+        encoder_attention_dropout: float = 0.0,
+        encoder_stochastic_depth_prob: float = 0.1,
+        encoder_norm_layer: Callable[..., nn.Module] = None,
+        encoder_use_MLP_from_outside: bool = True,
+        if_use_processed_Key_in_Scale_and_Shift_calculation: bool = True,
+    ):
+        
+        super().__init__()
+        
+        self.if_use_processed_Key_in_Scale_and_Shift_calculation = if_use_processed_Key_in_Scale_and_Shift_calculation
+        
+        if encoder_use_MLP_from_outside:
+            self.encoder_MLP_Key = MLP(encoder_dim, [int(encoder_dim * encoder_mlp_ratio), encoder_dim], activation_layer=nn.GELU, inplace=None, dropout=encoder_dropout)
+            self.encoder_MLP_Scale = MLP(encoder_dim, [int(encoder_dim * encoder_mlp_ratio), encoder_dim], activation_layer=nn.GELU, inplace=None, dropout=encoder_dropout)
+            self.encoder_MLP_Shift = MLP(encoder_dim, [int(encoder_dim * encoder_mlp_ratio), encoder_dim], activation_layer=nn.GELU, inplace=None, dropout=encoder_dropout)
+
+
+        self.MHA_shared_attn = StyleSwinTransformerBlock(
+            dim = encoder_dim,
+            num_heads = encoder_num_heads,
+            window_size = encoder_window_size,
+            shift_size = encoder_shift_size,
+            dropout = encoder_dropout,
+            attention_dropout = encoder_attention_dropout,
+            qkv_bias = True,
+            proj_bias = True,
+            mlp_ratio = encoder_mlp_ratio,
+            stochastic_depth_prob = encoder_stochastic_depth_prob,
+            norm_layer = encoder_norm_layer,
+            use_MLP_from_outside = encoder_use_MLP_from_outside,
+        )
+
+        if encoder_use_MLP_from_outside:
+            for m in [self.encoder_MLP_Key.modules(), self.encoder_MLP_Scale.modules(), self.encoder_MLP_Shift.modules()]:
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    if m.bias is not None:
+                        nn.init.normal_(m.bias, std=1e-6)
+
+    
+    def forward(self, Key: Tensor, Scale: Tensor, Shift: Tensor):
+
+        if self.encoder_use_MLP_from_outside:
+
+            if self.if_use_processed_Key_in_Scale_and_Shift_calculation:
+                # calculate the Key first, then use this calculated Key to calculate Scale and Shift
+                Key = self.MHA_shared_attn(
+                    Key,
+                    Key,
+                    Key,
+                    self.encoder_MLP_Key,
+                    calculating_Key_in_encoder=True
+                )
+
+                Scale = self.MHA_shared_attn(
+                    Key,
+                    Key,
+                    Scale,
+                    self.encoder_MLP_Scale,
+                    calculating_Key_in_encoder=False
+                )
+
+                Shift = self.MHA_shared_attn(
+                    Key,
+                    Key,
+                    Shift,
+                    self.encoder_MLP_Shift,
+                    calculating_Key_in_encoder=False
+                )
+            else:
+                # calculate Scale (using unprocessed Key)
+                Scale = self.MHA_shared_attn(
+                    Key,
+                    Key,
+                    Scale,
+                    self.encoder_MLP_Scale,
+                    calculating_Key_in_encoder=False
+                )
+
+                # calculate Shift (using unprocessed Key)
+                Shift = self.MHA_shared_attn(
+                    Key,
+                    Key,
+                    Shift,
+                    self.encoder_MLP_Shift,
+                    calculating_Key_in_encoder=False
+                )
+
+                # calculate Key lastly
+                Key = self.MHA_shared_attn(
+                    Key,
+                    Key,
+                    Key,
+                    self.encoder_MLP_Key,
+                    calculating_Key_in_encoder=True
+                )
+
+
+
+
 
 
 
@@ -427,7 +557,7 @@ if __name__ == "__main__":
                                       proj_bias=True,
                                       mlp_ratio=4.0,
                                       stochastic_depth_prob=0.1,
-                                      norm_layer=None, 
+                                      norm_layer=nn.LayerNorm,
                                       use_MLP_from_outside=False)
     
     x = torch.randn(1, 32, 32, 256)
@@ -436,4 +566,10 @@ if __name__ == "__main__":
     print(f"Input shape of the StyleSwinTransformerBlock block: {x.shape}")
     print(f"Output shape of the StyleSwinTransformerBlock block: {out.shape}")
     
+
+
+
+
+
+
 
