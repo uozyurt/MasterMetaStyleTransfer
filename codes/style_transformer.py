@@ -585,6 +585,7 @@ class StyleDecoder(nn.Module):
         decoder_use_instance_norm_with_affine: bool = False,
         decoder_use_regular_MHA_instead_of_Swin_at_the_end: bool = False,
         decoder_use_Key_instance_norm_after_linear_transformation: bool = True,
+        decoder_exclude_MLP_after_Fcs_self_MHA: bool = False,
     ):
         super().__init__()
 
@@ -611,7 +612,7 @@ class StyleDecoder(nn.Module):
             stochastic_depth_prob = decoder_stochastic_depth_prob,
             norm_layer = decoder_norm_layer,
             MLP_activation_layer = decoder_MLP_activation_layer,
-            exclude_MLP_after = False,
+            exclude_MLP_after = decoder_exclude_MLP_after_Fcs_self_MHA,
         )
 
         # apply instance normalization
@@ -819,6 +820,7 @@ class StyleTransformer(nn.Module):
         decoder_use_instance_norm_with_affine: bool = False,
         decoder_use_regular_MHA_instead_of_Swin_at_the_end: bool = False,
         decoder_use_Key_instance_norm_after_linear_transformation: bool = True,
+        decoder_exclude_MLP_after_Fcs_self_MHA: bool = False,
     ):
         super().__init__()
 
@@ -853,7 +855,8 @@ class StyleTransformer(nn.Module):
             decoder_MLP_activation_layer = decoder_MLP_activation_layer,
             decoder_use_instance_norm_with_affine = decoder_use_instance_norm_with_affine,
             decoder_use_regular_MHA_instead_of_Swin_at_the_end = decoder_use_regular_MHA_instead_of_Swin_at_the_end,
-            decoder_use_Key_instance_norm_after_linear_transformation = decoder_use_Key_instance_norm_after_linear_transformation
+            decoder_use_Key_instance_norm_after_linear_transformation = decoder_use_Key_instance_norm_after_linear_transformation,
+            decoder_exclude_MLP_after_Fcs_self_MHA = decoder_exclude_MLP_after_Fcs_self_MHA,
         )
 
     def forward(self,
@@ -985,7 +988,8 @@ if __name__ == "__main__":
                                    encoder_if_use_processed_Key_in_Scale_and_Shift_calculation=True,
                                    decoder_use_instance_norm_with_affine=False,
                                    decoder_use_regular_MHA_instead_of_Swin_at_the_end=False,
-                                   decoder_use_Key_instance_norm_after_linear_transformation=True)
+                                   decoder_use_Key_instance_norm_after_linear_transformation=True,
+                                   decoder_exclude_MLP_after_Fcs_self_MHA=False)
     
     Fc = torch.randn(1, 32, 32, 256)
     Fs = torch.randn(1, 32, 32, 256)

@@ -17,7 +17,7 @@ class Decoder(nn.Module):
                  initializer: str = "kaiming_normal_",):
         super().__init__()
 
-        assert initializer in ["kaiming_normal_", "kaiming_uniform_", "xavier_normal_", "xavier_uniform_", "orthogonal_", "zeros_"], "Invalid initializer. Please choose one of the following: kaiming_normal_, kaiming_uniform_, xavier_normal_, xavier_uniform_, orthogonal_"
+        assert initializer in [None, "kaiming_normal_", "kaiming_uniform_", "xavier_normal_", "xavier_uniform_", "orthogonal_"], "Invalid initializer. Please choose one of the following: None, kaiming_normal_, kaiming_uniform_, xavier_normal_, xavier_uniform_, orthogonal_"
 
         self.decoder = nn.Sequential(
             nn.Conv2d(channel_dim, channel_dim//2, (3, 3), padding=(1, 1), padding_mode='reflect'),
@@ -54,21 +54,22 @@ class Decoder(nn.Module):
         )
 
 
-        for m in self.decoder.modules():
-            if isinstance(m, nn.Conv2d):
-                if initializer == "kaiming_normal_":
-                    nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-                elif initializer == "kaiming_uniform_":
-                    nn.init.kaiming_uniform_(m.weight, mode='fan_out', nonlinearity='relu')
-                elif initializer == "xavier_normal_":
-                    nn.init.xavier_normal_(m.weight)
-                elif initializer == "xavier_uniform_":
-                    nn.init.xavier_uniform_(m.weight)
-                elif initializer == "orthogonal_":
-                    nn.init.orthogonal_(m.weight)
+        if initializer is not None:
+            for m in self.decoder.modules():
+                if isinstance(m, nn.Conv2d):
+                    if initializer == "kaiming_normal_":
+                        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                    elif initializer == "kaiming_uniform_":
+                        nn.init.kaiming_uniform_(m.weight, mode='fan_out', nonlinearity='relu')
+                    elif initializer == "xavier_normal_":
+                        nn.init.xavier_normal_(m.weight)
+                    elif initializer == "xavier_uniform_":
+                        nn.init.xavier_uniform_(m.weight)
+                    elif initializer == "orthogonal_":
+                        nn.init.orthogonal_(m.weight)
 
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         return self.decoder(x)

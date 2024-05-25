@@ -344,7 +344,7 @@ if __name__ == "__main__":
     IF_OUTPUT_CONTENT_AND_STYLE_LOSS = True
 
     # calculating similarity loss is time consuming, so it is disabled by default for the test
-    IF_OUTPUT_SIMILARITY_LOSS = True
+    IF_OUTPUT_SIMILARITY_LOSS = False
 
 
     # set the device

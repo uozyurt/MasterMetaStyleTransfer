@@ -50,6 +50,7 @@ class MasterStyleTransferModel(nn.Module):
         style_decoder_use_instance_norm_with_affine: bool = False,
         style_decoder_use_regular_MHA_instead_of_Swin_at_the_end: bool = False,
         style_decoder_use_Key_instance_norm_after_linear_transformation: bool = True,
+        style_decoder_exclude_MLP_after_Fcs_self_MHA: bool = False,
         decoder_initializer: str = "kaiming_normal_"
     ):
         super(MasterStyleTransferModel, self).__init__()
@@ -93,6 +94,7 @@ class MasterStyleTransferModel(nn.Module):
             decoder_use_instance_norm_with_affine = style_decoder_use_instance_norm_with_affine,
             decoder_use_regular_MHA_instead_of_Swin_at_the_end = style_decoder_use_regular_MHA_instead_of_Swin_at_the_end,
             decoder_use_Key_instance_norm_after_linear_transformation = style_decoder_use_Key_instance_norm_after_linear_transformation,
+            decoder_exclude_MLP_after_Fcs_self_MHA = style_decoder_exclude_MLP_after_Fcs_self_MHA
         )
 
         self.decoder = Decoder(channel_dim=style_decoder_dim,

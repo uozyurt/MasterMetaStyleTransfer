@@ -1,18 +1,21 @@
 import argparse
 import os
+import yaml
 import random
 from tqdm import tqdm
 from copy import deepcopy
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import wandb
 
-from codes.models import SwinEncoder, StyleTransformer, StyleDecoder
+from codes.full_model import MasterStyleTransferModel
 from codes.loss import custom_loss
 from codes.get_dataloader import coco_train_dataset, wikiart_dataset, InfiniteSampler
+
 
 
 class Train:
@@ -32,14 +35,20 @@ class Train:
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Paths
+        # project path 
         self.project_root = config.project_root
         self.model_save_path = config.model_save_path
+
+
+        # Dataset paths
         self.coco_dataset_path = config.coco_dataset_path
         self.wikiart_dataset_path = config.wikiart_dataset_path
-        self.encoder_model_path = config.encoder_model_path
+
+
+        # Loss model path
         self.loss_model_path = config.loss_model_path
         self.use_vgg19_with_batchnorm = config.use_vgg19_with_batchnorm
+
 
         # Dataloader parameters
         self.batch_size_style = config.batch_size_style
@@ -49,21 +58,9 @@ class Train:
         self.use_infinite_sampler = config.use_infinite_sampler
         self.pin_memory = config.pin_memory
 
-        # Model parameters
-        self.dim = config.dim
-        self.input_resolution = config.input_resolution
-        self.num_heads = config.num_heads
-        self.window_size = config.window_size
-        self.shift_size = config.shift_size
-        self.mlp_ratio = config.mlp_ratio
-        self.qkv_bias = config.qkv_bias
-        self.qk_scale = config.qk_scale
-        self.drop = config.drop
-        self.attn_drop = config.attn_drop
-        self.act_layer = config.act_layer
-        self.freeze_encoder = config.freeze_encoder
 
         # Hyperparameters
+        self.freeze_encoder = config.freeze_encoder
         self.inner_lr = config.inner_lr
         self.outer_lr = config.outer_lr
         self.num_inner_updates = config.num_inner_updates
@@ -72,33 +69,93 @@ class Train:
         self.save_every = config.save_every
         self.max_iterations = config.max_iterations
 
-        # Decoder parameters
-        self.init_decoder_with_he = config.init_decoder_with_he
+
+
+        # MasterStyleTransferModel parameters
+        self.swin_model_relative_path = config.swin_model_relative_path
+        self.swin_variant = config.swin_variant
+        self.style_encoder_dim = config.style_encoder_dim
+        self.style_decoder_dim = config.style_decoder_dim
+        self.style_encoder_num_heads = config.style_encoder_num_heads
+        self.style_decoder_num_heads = config.style_decoder_num_heads
+        self.style_encoder_window_size = config.style_encoder_window_size
+        self.style_decoder_window_size = config.style_decoder_window_size
+        self.style_encoder_shift_size = config.style_encoder_shift_size
+        self.style_decoder_shift_size = config.style_decoder_shift_size
+        self.style_encoder_mlp_ratio = config.style_encoder_mlp_ratio
+        self.style_decoder_mlp_ratio = config.style_decoder_mlp_ratio
+        self.style_encoder_dropout = config.style_encoder_dropout
+        self.style_decoder_dropout = config.style_decoder_dropout
+        self.style_encoder_attention_dropout = config.style_encoder_attention_dropout
+        self.style_decoder_attention_dropout = config.style_decoder_attention_dropout
+        self.style_encoder_qkv_bias = config.style_encoder_qkv_bias
+        self.style_decoder_qkv_bias = config.style_decoder_qkv_bias
+        self.style_encoder_proj_bias = config.style_encoder_proj_bias
+        self.style_decoder_proj_bias = config.style_decoder_proj_bias
+        self.style_encoder_stochastic_depth_prob = config.style_encoder_stochastic_depth_prob
+        self.style_decoder_stochastic_depth_prob = config.style_decoder_stochastic_depth_prob
+        self.style_encoder_norm_layer = config.style_encoder_norm_layer
+        self.style_decoder_norm_layer = config.style_decoder_norm_layer
+        self.style_encoder_MLP_activation_layer = config.style_encoder_MLP_activation_layer
+        self.style_decoder_MLP_activation_layer = config.style_decoder_MLP_activation_layer
+        self.style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation = config.style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation
+        self.style_decoder_use_instance_norm_with_affine = config.style_decoder_use_instance_norm_with_affine
+        self.style_decoder_use_regular_MHA_instead_of_Swin_at_the_end = config.style_decoder_use_regular_MHA_instead_of_Swin_at_the_end
+        self.style_decoder_use_Key_instance_norm_after_linear_transformation = config.style_decoder_use_Key_instance_norm_after_linear_transformation
+        self.style_decoder_exclude_MLP_after_Fcs_self_MHA = config.style_decoder_exclude_MLP_after_Fcs_self_MHA
+        self.decoder_initializer = config.decoder_initializer
+
+
+
+
+        # Seed configuration
+        self.set_seed = config.set_seed
+        self.seed = config.seed
+
 
         # Verbose
         self.verbose = config.verbose
 
 
-        # Initialize models
-        self.style_transformer = StyleTransformer(
-            dim=self.dim,
-            input_resolution=tuple(self.input_resolution),
-            num_heads=self.num_heads,
-            window_size=self.window_size,
-            shift_size=self.shift_size,
-            mlp_ratio=self.mlp_ratio,
-            qkv_bias=self.qkv_bias,
-            qk_scale=self.qk_scale,
-            drop=self.drop,
-            attn_drop=self.attn_drop
+        # Initialize the master style transfer model
+        master_style_transformer = MasterStyleTransferModel(
+            project_absolute_path=self.project_root,
+            swin_model_relative_path=self.swin_model_relative_path,
+            swin_variant=self.swin_variant,
+            style_encoder_dim=self.style_encoder_dim,
+            style_decoder_dim=self.style_decoder_dim,
+            style_encoder_num_heads=self.style_encoder_num_heads,
+            style_decoder_num_heads=self.style_decoder_num_heads,
+            style_encoder_window_size=self.style_encoder_window_size,
+            style_decoder_window_size=self.style_decoder_window_size,
+            style_encoder_shift_size=self.style_encoder_shift_size,
+            style_decoder_shift_size=self.style_decoder_shift_size,
+            style_encoder_mlp_ratio=self.style_encoder_mlp_ratio,
+            style_decoder_mlp_ratio=self.style_decoder_mlp_ratio,
+            style_encoder_dropout=self.style_encoder_dropout,
+            style_decoder_dropout=self.style_decoder_dropout,
+            style_encoder_attention_dropout=self.style_encoder_attention_dropout,
+            style_decoder_attention_dropout=self.style_decoder_attention_dropout,
+            style_encoder_qkv_bias=self.style_encoder_qkv_bias,
+            style_decoder_qkv_bias=self.style_decoder_qkv_bias,
+            style_encoder_proj_bias=self.style_encoder_proj_bias,
+            style_decoder_proj_bias=self.style_decoder_proj_bias,
+            style_encoder_stochastic_depth_prob=self.style_encoder_stochastic_depth_prob,
+            style_decoder_stochastic_depth_prob=self.style_decoder_stochastic_depth_prob,
+            style_encoder_norm_layer=self.style_encoder_norm_layer,
+            style_decoder_norm_layer=self.style_decoder_norm_layer,
+            style_encoder_MLP_activation_layer=self.style_encoder_MLP_activation_layer,
+            style_decoder_MLP_activation_layer=self.style_decoder_MLP_activation_layer,
+            style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation=self.style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation,
+            style_decoder_use_instance_norm_with_affine=self.style_decoder_use_instance_norm_with_affine,
+            style_decoder_use_regular_MHA_instead_of_Swin_at_the_end=self.style_decoder_use_regular_MHA_instead_of_Swin_at_the_end,
+            style_decoder_use_Key_instance_norm_after_linear_transformation=self.style_decoder_use_Key_instance_norm_after_linear_transformation,
+            style_decoder_exclude_MLP_after_Fcs_self_MHA=self.style_decoder_exclude_MLP_after_Fcs_self_MHA,
+            decoder_initializer=self.decoder_initializer
         )
 
-        self.swin_encoder = SwinEncoder(
-            relative_model_path=self.encoder_model_path,
-            freeze_params=self.freeze_encoder
-        )
 
-        self.decoder = StyleDecoder(channel_dim=self.dim)
+
 
         # Send models to device
         self.style_transformer.to(self.device)
@@ -113,15 +170,6 @@ class Train:
 
 
 
-        if(self.init_decoder_with_he):
-            # initialize the decoder with kaiming (he) uniform initialization
-            for name, param in self.decoder.named_parameters():
-                if 'weight' in name:
-                    torch.nn.init.kaiming_normal_(param, a=0, nonlinearity='relu')
-                elif 'bias' in name:
-                    torch.nn.init.constant_(param, 0)
-
-
 
 
 
@@ -129,7 +177,13 @@ class Train:
         self.style_transformer.train()
         self.decoder.train()
         if not self.freeze_encoder:
-            self.swin_encoder.train()
+            self.master_style_transformer.swin_encoder.train()
+        else:
+            self.master_style_transform.swin_encoder.eval()
+
+            # Freeze the parameters of the encoder
+            for param in self.swin_encoder.parameters():
+                param.requires_grad = False
 
 
 
@@ -145,9 +199,7 @@ class Train:
             self.online = config.online
             self.exp_name = config.exp_name
 
-        # Seed configuration
-        self.set_seed = config.set_seed
-        self.seed = config.seed
+
 
     def print_network(self, model, name):
         """Print out the network information."""
@@ -166,9 +218,9 @@ class Train:
 
     def save_models(self, iter):
         """Save the models."""
-        style_transformer_path = os.path.join(self.project_root, self.model_save_path, f"{self.exp_name}_style_transformer_{iter}.pt")
-        swin_encoder_path = os.path.join(self.project_root, self.model_save_path, f"{self.exp_name}_swin_encoder_{iter}.pt")
-        decoder_path = os.path.join(self.project_root, self.model_save_path, f"{self.exp_name}_decoder_{iter}.pt")
+        style_transformer_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_style_transformer_{iter}.pt")
+        swin_encoder_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_swin_encoder_{iter}.pt")
+        decoder_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_decoder_{iter}.pt")
         torch.save(self.style_transformer.state_dict(), style_transformer_path)
         torch.save(self.decoder.state_dict(), decoder_path)
 
@@ -191,17 +243,33 @@ class Train:
 
 
     def train(self):
+        # Make sure model saving path exists
+        if not os.path.exists(os.path.join(self.model_save_path, self.exp_name)):
+            os.makedirs(os.path.join(self.model_save_path, self.exp_name))
+        else:
+            # If the model saving path already exists, create a new folder with a new name and change experiment name
+            print(f"Model saving path already exists: {os.path.join(self.model_save_path, self.exp_name)}")
+            self.exp_name = self.exp_name + "_new"
+
+            os.makedirs(os.path.join(self.model_save_path, self.exp_name))
+            
+        
+        # save config file as a yaml file
+        with open(os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_config.yaml"), 'w') as file:
+            yaml.dump(vars(self), file)
+
+
+        # Initialize wandb             
         if self.use_wandb:
             mode = 'online' if self.online else 'offline'
-            kwargs = {'name': self.exp_name, 'project': 'master', 'config': config,
+            kwargs = {'name': self.exp_name, 'project': 'master_v2', 'config': config,
                     'settings': wandb.Settings(_disable_stats=True), 'reinit': True, 'mode': mode, 'save_code': True}
             wandb.init(**kwargs)
         else:
             mode = 'disabled'
 
-        # Make sure model saving path exists
-        if not os.path.exists(self.model_save_path):
-            os.makedirs(self.model_save_path)
+
+            
 
         # create dataset objects
         coco_train_dataset_object = coco_train_dataset(self.project_root, self.coco_dataset_path)
@@ -372,67 +440,191 @@ if __name__ == '__main__':
     # project path 
     parser.add_argument('--project_root', type=str, default=os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
                         help='The absolute path of the project root directory.')
-    parser.add_argument('--model_save_path', type=str, default="exps/models",)
+    
+    parser.add_argument('--model_save_path', type=str, default="exps/models",
+                        help='Relative path to save the models.')
+
+
+    
+    # Dataset paths
+    parser.add_argument('--coco_dataset_path', type=str, default="datasets/coco_train_dataset/train2017",
+                        help='Relative path to the COCO dataset directory.')
+    
+    parser.add_argument('--wikiart_dataset_path', type=str, default="datasets/wikiart/**",
+                        help='Relative path to the Wikiart dataset directory.')
+
+
+
 
     # Loss model path
     parser.add_argument('--loss_model_path', type=str, default="weights/vgg_19_last_layer_is_relu_5_1_output.pt",
                         help="Relative path to the pre-trained VGG19 model cut at the last layer of relu 5_1.")
+    
     parser.add_argument('--use_vgg19_with_batchnorm', type=bool, default=False,
                         help="If true, use the pre-trained VGG19 model with batch normalization.")
-    
-    # StyleTransformer parameters
-    parser.add_argument('--dim', type=int, default=256, help='Number of input channels.')
-    parser.add_argument('--input_resolution', type=int, nargs=2, default=[32, 32], help='Dimensions (height, width) of the input feature map.')
-    parser.add_argument('--num_heads', type=int, default=8, help='Number of attention heads.')
-    parser.add_argument('--window_size', type=int, default=8, help='Size of the attention window.')
-    parser.add_argument('--shift_size', type=int, default=4, help='Offset for the cyclic shift within the window attention mechanism.')
-    parser.add_argument('--mlp_ratio', type=float, default=4.0, help='Expansion ratio for the MLP block compared to the number of input channels.')
-    parser.add_argument('--qkv_bias', type=bool, default=True, help='Add a learnable bias to query, key, value projections.')
-    parser.add_argument('--qk_scale', type=float, default=None, help='Custom scaling factor for query-key dot products in attention.')
-    parser.add_argument('--drop', type=float, default=0.0, help='Dropout rate applied to the output of the MLP block.')
-    parser.add_argument('--attn_drop', type=float, default=0.0, help='Dropout rate applied to attention weights.')
-    parser.add_argument('--act_layer', type=str, default='nn.ReLU', help='Activation function used in the MLP block.')
 
-    # SwinEncoder parameters
-    parser.add_argument('--encoder_model_path', type=str, default='weights/swin_B_first_2_stages.pt', help='Path where the Swin model is saved or should be saved.')
-    parser.add_argument('--freeze_encoder', default=True, help='Freeze the parameters of the model.')
 
-    # Decoder parameters
-    parser.add_argument('--init_decoder_with_he', type=bool, default=True, help='Initialize the decoder with He uniform initialization.')
-
-    # Hyperparameters
-    parser.add_argument('--inner_lr', type=float, default=0.0001, help='Inner learning rate (delta)')
-    parser.add_argument('--outer_lr', type=float, default=0.0001, help='Outer learning rate (eta)')
-    parser.add_argument('--num_inner_updates', type=int, default=4, help='Number of inner updates (k)')
-    parser.add_argument('--max_layers', type=int, default=4, help='Maximal number of stacked layers (T)')
-    parser.add_argument('--lambda_style', type=float, default=10.0, help='Weighting term for style loss (lambda)')
-    parser.add_argument('--save_every', type=int, default=100, help='Save the model every n iterations')
-    # Dataset paths
-    parser.add_argument('--coco_dataset_path', type=str, default="datasets/coco_train_dataset/train2017",
-                        help='Relative path to the COCO dataset directory.')
-    parser.add_argument('--wikiart_dataset_path', type=str, default="datasets/wikiart/**",
-                        help='Relative path to the Wikiart dataset directory.')
-    parser.add_argument('--max_iterations', type=int, default=20000, help='Number of iterations to train the model.')
 
     # DataLoader parameters
-    parser.add_argument('--batch_size_style', type=int, default=1, help='Batch size for the style datasets')
-    parser.add_argument('--batch_size_content', type=int, default=4, help='Batch size for the content dataset')
-    parser.add_argument('--num_workers', type=int, default=4, help='Number of workers for data loading')
-    parser.add_argument('--shuffle', default=True, help='Whether to shuffle the dataset')
-    parser.add_argument('--use_infinite_sampler', default=True, help='Whether to use the InfiniteSampler (if used, shuffle will be neglected)')
-    parser.add_argument('--pin_memory', default=True, help='Whether to pin memory for faster data transfer to CUDA')
+    parser.add_argument('--batch_size_style', type=int, default=1,
+                        help='Batch size for the style datasets')
+    
+    parser.add_argument('--batch_size_content', type=int, default=4,
+                        help='Batch size for the content dataset')
+    
+    parser.add_argument('--num_workers', type=int, default=4,
+                        help='Number of workers for data loading')
+    
+    parser.add_argument('--shuffle', default=True,
+                        help='Whether to shuffle the dataset')
+    
+    parser.add_argument('--use_infinite_sampler', default=True,
+                        help='Whether to use the InfiniteSampler (if used, shuffle will be neglected)')
+    
+    parser.add_argument('--pin_memory', default=True,
+                        help='Whether to pin memory for faster data transfer to CUDA')
 
-    # Seed configuration.
-    parser.add_argument('--set_seed', type=bool, default=False, help='set seed for reproducibility')
-    parser.add_argument('--seed', type=int, default=42, help='seed for reproducibility')
+
+
+    # Hyperparameters
+    parser.add_argument('--freeze_encoder', default=True,
+                        help='Freeze the parameters of the model.')
+    
+    parser.add_argument('--inner_lr', type=float, default=0.0001,
+                        help='Inner learning rate (delta)')
+    
+    parser.add_argument('--outer_lr', type=float, default=0.0001,
+                        help='Outer learning rate (eta)')
+    
+    parser.add_argument('--num_inner_updates', type=int, default=1,
+                        help='Number of inner updates (k)')
+    
+    parser.add_argument('--max_layers', type=int, default=4,
+                        help='Maximal number of stacked layers (T)')
+    
+    parser.add_argument('--lambda_style', type=float, default=10.0,
+                        help='Weighting term for style loss (lambda)')
+    
+    parser.add_argument('--save_every', type=int, default=100,
+                        help='Save the model every n iterations')
+    
+    parser.add_argument('--max_iterations', type=int, default=20000,
+                        help='Number of iterations to train the model.')
+
+
+
+    # MasterStyleTransferModel parameters
+    parser.add_argument('--swin_model_relative_path', type=str, default="weights/swin_B_first_2_stages.pt",
+                        help='Relative path to the Swin Transformer model.')
+    
+    parser.add_argument('--swin_variant', type=str, default="swin_B",
+                        help='Swin Transformer variant.')
+    
+    parser.add_argument('--style_encoder_dim', type=int, default=256,
+                        help='Dimension of the encoder.')
+    parser.add_argument('--style_decoder_dim', type=int, default=256,
+                        help='Dimension of the decoder.')
+    
+    parser.add_argument('--style_encoder_num_heads', type=int, default=8,
+                        help='Number of heads in the encoder.')
+    parser.add_argument('--style_decoder_num_heads', type=int, default=8,
+                        help='Number of heads in the decoder.')
+    
+    parser.add_argument('--style_encoder_window_size', type=list, default=[8, 8],
+                        help='Window size of the encoder.')
+    parser.add_argument('--style_decoder_window_size', type=list, default=[8, 8],
+                        help='Window size of the decoder.')
+    
+    parser.add_argument('--style_encoder_shift_size', type=list, default=[4, 4],
+                        help='Shift size of the encoder.')
+    parser.add_argument('--style_decoder_shift_size', type=list, default=[4, 4],
+                        help='Shift size of the decoder.')
+    
+    parser.add_argument('--style_encoder_mlp_ratio', type=float, default=4.0,
+                        help='MLP ratio of the encoder.')
+    parser.add_argument('--style_decoder_mlp_ratio', type=float, default=4.0,
+                        help='MLP ratio of the decoder.')
+    
+    parser.add_argument('--style_encoder_dropout', type=float, default=0.0,
+                        help='Dropout rate of the encoder.')
+    parser.add_argument('--style_decoder_dropout', type=float, default=0.0,
+                        help='Dropout rate of the decoder.')
+    
+    parser.add_argument('--style_encoder_attention_dropout', type=float, default=0.0,
+                        help='Attention dropout rate of the encoder.')
+    parser.add_argument('--style_decoder_attention_dropout', type=float, default=0.0,
+                        help='Attention dropout rate of the decoder.')
+    
+    parser.add_argument('--style_encoder_qkv_bias', type=bool, default=True,
+                        help='Whether to use bias in the QKV projection of the encoder.')
+    parser.add_argument('--style_decoder_qkv_bias', type=bool, default=True,
+                        help='Whether to use bias in the QKV projection of the decoder.')
+    
+    parser.add_argument('--style_encoder_proj_bias', type=bool, default=True,
+                        help='Whether to use bias in the projection of the encoder.')
+    parser.add_argument('--style_decoder_proj_bias', type=bool, default=True,
+                        help='Whether to use bias in the projection of the decoder.')
+    
+    parser.add_argument('--style_encoder_stochastic_depth_prob', type=float, default=0.1,
+                        help='Stochastic depth probability of the encoder.')
+    parser.add_argument('--style_decoder_stochastic_depth_prob', type=float, default=0.1,
+                        help='Stochastic depth probability of the decoder.')
+    
+    parser.add_argument('--style_encoder_norm_layer', type=callable, default=None,
+                        help='Normalization layer of the encoder.')
+    parser.add_argument('--style_decoder_norm_layer', type=callable, default=nn.LayerNorm,
+                        help='Normalization layer of the decoder.')
+    
+    parser.add_argument('--style_encoder_MLP_activation_layer', type=callable, default=nn.GELU,
+                        help='Activation layer of the MLP in the encoder.')
+    parser.add_argument('--style_decoder_MLP_activation_layer', type=callable, default=nn.GELU,
+                        help='Activation layer of the MLP in the decoder.')
+    
+    parser.add_argument('--style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation', type=bool, default=True,
+                        help='Whether to use processed Key in Scale and Shift calculation of the encoder.')
+    
+    parser.add_argument('--style_decoder_use_instance_norm_with_affine', type=bool, default=False,
+                        help='Whether to use instance normalization with affine in the decoder.')
+    
+    parser.add_argument('--style_decoder_use_regular_MHA_instead_of_Swin_at_the_end', type=bool, default=False,
+                        help='Whether to use regular MHA instead of Swin at the end of the decoder.')
+    
+    parser.add_argument('--style_decoder_use_Key_instance_norm_after_linear_transformation', type=bool, default=True,
+                        help='Whether to use instance normalization after linear transformation in the decoder.')
+    
+    parser.add_argument('--style_decoder_exclude_MLP_after_Fcs_self_MHA', type=bool, default=False,
+                        help='Whether to exclude MLP after Fcs self MHA in the decoder.')
+    
+    parser.add_argument('--decoder_initializer', type=str, default="kaiming_normal_",
+                        help='Initializer for the decoder.')
+
+
 
     # wandb configuration.
-    parser.add_argument('--use_wandb', type=bool, default=False, help='use wandb for logging')
-    parser.add_argument('--online', type=bool, default=True, help='use wandb online')
-    parser.add_argument('--exp_name', type=str, default='master', help='experiment name')
+    parser.add_argument('--use_wandb', type=bool, default=False,
+                        help='use wandb for logging')
+    
+    parser.add_argument('--online', type=bool, default=True,
+                        help='use wandb online')
+    
+    parser.add_argument('--exp_name', type=str, default='master',
+                        help='experiment name')
+
+
+
+
+    # Seed configuration.
+    parser.add_argument('--set_seed', type=bool, default=False,
+                        help='set seed for reproducibility')
+    
+    parser.add_argument('--seed', type=int, default=42,
+                        help='seed for reproducibility')
+
+
 
     # verbose
-    parser.add_argument('--verbose', type=bool, default=True, help='Print the model informations and loss values at each loss calculation.')
+    parser.add_argument('--verbose', type=bool, default=True,
+                        help='Print the model informations and loss values at each loss calculation.')
 
 
     config = parser.parse_args()
