@@ -111,14 +111,42 @@ class Train:
 
 
 
-
         # Seed configuration
         self.set_seed = config.set_seed
         self.seed = config.seed
 
 
+
         # Verbose
         self.verbose = config.verbose
+
+
+
+        # Wandb parameters
+        self.use_wandb = config.use_wandb
+        self.online = config.online
+        self.exp_name = config.exp_name
+
+
+        # Make sure model saving path exists
+        if not os.path.exists(os.path.join(self.model_save_path, self.exp_name)):
+            os.makedirs(os.path.join(self.model_save_path, self.exp_name))
+        else:
+            # If the model saving path already exists, create a new folder with a new name and change experiment name
+            print(f"Model saving path already exists: {os.path.join(self.model_save_path, self.exp_name)}")
+
+            self.exp_name = self.exp_name + "_new_0"
+            while os.path.exists(os.path.join(self.model_save_path, self.exp_name)):
+                self.exp_name = self.exp_name[:-1] + str(int(self.exp_name[-1]) + 1)
+            
+            print(f"New experiment name: {self.exp_name}")
+
+            os.makedirs(os.path.join(self.model_save_path, self.exp_name))
+            
+        
+        # save config file as a yaml file
+        with open(os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_config.yaml"), 'w') as file:
+            yaml.dump(vars(self), file)
 
 
         # Initialize the master style transfer model
@@ -170,7 +198,12 @@ class Train:
 
 
 
-
+        # initialize the style transformer with truncated normal initialization
+        for name, param in self.master_style_transformer.style_transformer.named_parameters():
+            if 'weight' in name:
+                torch.nn.init.trunc_normal_(param, std=0.02)
+            elif 'bias' in name:
+                torch.nn.init.constant_(param, 0)
 
 
         # set the devices to training mode
@@ -215,11 +248,6 @@ class Train:
                                          default_lambda_value=self.lambda_style,
                                          distance=self.loss_distance).to(self.device)
 
-        # Wandb parameters
-        self.use_wandb = config.use_wandb
-        if self.use_wandb:
-            self.online = config.online
-            self.exp_name = config.exp_name
 
 
 
@@ -265,20 +293,6 @@ class Train:
 
 
     def train(self):
-        # Make sure model saving path exists
-        if not os.path.exists(os.path.join(self.model_save_path, self.exp_name)):
-            os.makedirs(os.path.join(self.model_save_path, self.exp_name))
-        else:
-            # If the model saving path already exists, create a new folder with a new name and change experiment name
-            print(f"Model saving path already exists: {os.path.join(self.model_save_path, self.exp_name)}")
-            self.exp_name = self.exp_name + "_new"
-
-            os.makedirs(os.path.join(self.model_save_path, self.exp_name))
-            
-        
-        # save config file as a yaml file
-        with open(os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_config.yaml"), 'w') as file:
-            yaml.dump(vars(self), file)
 
 
         # Initialize wandb             

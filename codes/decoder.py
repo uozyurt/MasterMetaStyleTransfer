@@ -17,7 +17,8 @@ class Decoder(nn.Module):
                  initializer: str = "kaiming_normal_",):
         super().__init__()
 
-        assert initializer in [None, "kaiming_normal_", "kaiming_uniform_", "xavier_normal_", "xavier_uniform_", "orthogonal_"], "Invalid initializer. Please choose one of the following: None, kaiming_normal_, kaiming_uniform_, xavier_normal_, xavier_uniform_, orthogonal_"
+
+        assert initializer in ["default", "kaiming_normal_", "kaiming_uniform_", "xavier_normal_", "xavier_uniform_", "orthogonal_"], "Invalid initializer. Please choose one of the following: default, kaiming_normal_, kaiming_uniform_, xavier_normal_, xavier_uniform_, orthogonal_"
 
         self.decoder = nn.Sequential(
             nn.Conv2d(channel_dim, channel_dim//2, (3, 3), padding=(1, 1), padding_mode='reflect'),

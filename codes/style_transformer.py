@@ -223,6 +223,26 @@ class ShiftedWindowAttention(nn.Module):
         self.define_relative_position_bias_table()
         self.define_relative_position_index()
 
+
+        ### CHANGE FROM ORIGINAL CODE, START ###
+
+        nn.init.trunc_normal_(self.Wq.weight, std=1e-16)
+        nn.init.trunc_normal_(self.Wk.weight, std=1e-16)
+        nn.init.trunc_normal_(self.Wv.weight, std=1e-16)
+        nn.init.trunc_normal_(self.proj.weight, std=1e-16)
+
+        if qkv_bias:
+            nn.init.constant_(self.Wq.bias, 0)
+            nn.init.constant_(self.Wk.bias, 0)
+            nn.init.constant_(self.Wv.bias, 0)
+        
+        if proj_bias:
+            nn.init.constant_(self.proj.bias, 0)
+        
+        
+
+        ### CHANGE FROM ORIGINAL CODE, END ###
+
     def define_relative_position_bias_table(self):
         # define a parameter table of relative position bias
         self.relative_position_bias_table = nn.Parameter(
@@ -738,12 +758,10 @@ class StyleDecoder(nn.Module):
 
             # apply MHA manually
 
-            print(Query_IN.shape[-1])
-
             # scale the query
             Query_IN = Query_IN * (Query_IN.shape[-1] ** -0.5)
 
-            attn = F.softmax(torch.matmul(Query, Key.transpose(-2, -1)), dim=-1)
+            attn = F.softmax(torch.matmul(Query_IN, Key.transpose(-2, -1)), dim=-1)
 
             sigma = torch.matmul(attn, Scale)
             mu = torch.matmul(attn, Shift)
@@ -751,6 +769,10 @@ class StyleDecoder(nn.Module):
             # project sigma and mu
             sigma = self.proj_sigma(sigma)
             mu = self.proj_mu(mu)
+
+            # reshape sigma and mu
+            sigma = sigma.view(Query_prev_shape)
+            mu = mu.view(Query_prev_shape)
 
         
         # scale and shift the query with sigma and mu

@@ -82,6 +82,9 @@ class custom_loss(nn.Module):
                  distance="euclidian"):
         super().__init__()
 
+        assert distance in ["euclidian", "euclidian_squared"], "distance should be either 'euclidian' or 'euclidian_squared'"
+
+
         # if the relative path is not given, set it to the default
         if feature_extractor_model_relative_path is None:
             if use_vgg19_with_batchnorm:
