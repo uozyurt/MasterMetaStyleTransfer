@@ -5,14 +5,6 @@ import glob
 import os
 import torch
 
-# TODO: check if normalization with mean and std is needed
-transform = transforms.Compose([
-    transforms.ToPILImage(), # -> PIL image
-    transforms.Resize((512, 512)), # -> resize to 512x512
-    transforms.RandomCrop((256,256)) , # random crop to 256x256
-    transforms.ToTensor()
-])
-
 
 # write an infinite batch sampler
 class InfiniteSampler(Sampler):
@@ -29,7 +21,23 @@ class InfiniteSampler(Sampler):
 
 class coco_train_dataset(Dataset):
     # initialize the dataset
-    def __init__(self, project_absolute_path, coco_dataset_relative_path = "datasets/coco_train_dataset/train2017"):
+    def __init__(self,
+                 project_absolute_path,
+                 transform = None,
+                 coco_dataset_relative_path = "datasets/coco_train_dataset/train2017"):
+        
+        # check if transform is given
+        if transform is not None:
+            self.transform = transform
+        else:
+            self.transform = transforms.Compose([
+                transforms.ToPILImage(), # -> PIL image
+                transforms.Resize((512, 512)), # -> resize to 512x512
+                transforms.RandomCrop((256,256)) , # random crop to 256x256
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # normalize with mean and std
+            ])
+
         # get the absolute path of the dataset
         dataset_absolute_path = os.path.join(project_absolute_path, coco_dataset_relative_path)
 
@@ -58,13 +66,29 @@ class coco_train_dataset(Dataset):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         # apply transformations
-        img = transform(img)
+        img = self.transform(img)
 
         return img
     
 class wikiart_dataset(Dataset):
     # initialize the dataset
-    def __init__(self, project_absolute_path, wikiart_dataset_relative_path = "datasets/wikiart/**", wikiart_dataset_relative_path2 = "datasets/wikiart"):
+    def __init__(self, project_absolute_path,
+                 transform = None,
+                 wikiart_dataset_relative_path = "datasets/wikiart/**",
+                 wikiart_dataset_relative_path2 = "datasets/wikiart"):
+        
+        # check if transform is given
+        if transform is not None:
+            self.transform = transform
+        else:
+            self.transform = transforms.Compose([
+                transforms.ToPILImage(), # -> PIL image
+                transforms.Resize((512, 512)), # -> resize to 512x512
+                transforms.RandomCrop((256,256)) , # random crop to 256x256
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # normalize with mean and std
+            ])
+
         # get the absolute path of the dataset
         dataset_absolute_path2 = os.path.abspath(os.path.join(project_absolute_path, wikiart_dataset_relative_path2))
         dataset_absolute_path = os.path.abspath(os.path.join(project_absolute_path, wikiart_dataset_relative_path))
@@ -92,7 +116,7 @@ class wikiart_dataset(Dataset):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         # apply transformations
-        img = transform(img)
+        img = self.transform(img)
 
         return img
 
