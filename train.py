@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torchvision import transforms
 from torch.utils.data import DataLoader
 import wandb
 
@@ -66,6 +67,9 @@ class Train:
         self.num_inner_updates = config.num_inner_updates
         self.max_layers = config.max_layers
         self.lambda_style = config.lambda_style
+        self.loss_distance = config.loss_distance
+        self.use_imagenet_normalization_for_swin = config.use_imagenet_normalization_for_swin
+        self.use_imagenet_normalization_for_loss = config.use_imagenet_normalization_for_loss
         self.save_every = config.save_every
         self.max_iterations = config.max_iterations
 
@@ -185,13 +189,35 @@ class Train:
             for param in self.swin_encoder.parameters():
                 param.requires_grad = False
 
+        # declare the image transform
+        if self.use_imagenet_normalization_for_swin:
+            self.transform = transforms.Compose([
+                transforms.ToPILImage(), # -> PIL image
+                transforms.Resize((512, 512)), # -> resize to 512x512
+                transforms.RandomCrop((256,256)) , # random crop to 256x256
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # normalize with mean and std
+            ])
+        else:
+            self.transform = transforms.Compose([
+                transforms.ToPILImage(), # -> PIL image
+                transforms.Resize((512, 512)), # -> resize to 512x512
+                transforms.RandomCrop((256,256)) , # random crop to 256x256
+                transforms.ToTensor()
+            ])
+
+        
+        # declare normalization for the loss function
+        if self.use_imagenet_normalization_for_loss:
+            self.imagenet_normalization_before_loss = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
 
         # Initialize loss function
         self.loss_function = custom_loss(project_absolute_path=self.project_root,
                                          feature_extractor_model_relative_path=self.loss_model_path,
                                          use_vgg19_with_batchnorm=self.use_vgg19_with_batchnorm,
-                                         default_lambda_value=self.lambda_style).to(self.device)
+                                         default_lambda_value=self.lambda_style,
+                                         distance=self.loss_distance).to(self.device)
 
         # Wandb parameters
         self.use_wandb = config.use_wandb
@@ -272,8 +298,16 @@ class Train:
             
 
         # create dataset objects
-        coco_train_dataset_object = coco_train_dataset(self.project_root, self.coco_dataset_path)
-        wikiart_dataset_object = wikiart_dataset(self.project_root, self.wikiart_dataset_path)
+        coco_train_dataset_object = coco_train_dataset(
+            project_absolute_path=self.project_root,
+            transform=self.transform,                        
+            coco_dataset_relative_path=self.coco_dataset_path
+        )
+        wikiart_dataset_object = wikiart_dataset(
+            project_absolute_path=self.project_root,
+            transform=self.transform,
+            wikiart_dataset_relative_path=self.wikiart_dataset_path
+        )
 
         # Initialize Dataloaders
         if not self.use_infinite_sampler:
@@ -372,8 +406,28 @@ class Train:
                 # Decode the transformed output with omega parameters, not the self.decoder
                 decoded_output = omega_decoder(transformed_output)
 
-                # Compute inner loss
-                total_loss, content_loss, style_loss = self.loss_function(content_images, style_image_batch, decoded_output, output_content_and_style_loss=True)
+
+                
+                if self.use_imagenet_normalization_for_loss: # if needed, normalize the images
+
+                    if self.use_imagenet_normalization_for_swin: # only normalize the decoder output
+                        # Compute inner loss
+                        total_loss, content_loss, style_loss = self.loss_function(content_images,
+                                                                                  style_image_batch,
+                                                                                  self.imagenet_normalization_before_loss(decoded_output),
+                                                                                  output_content_and_style_loss=True)
+                    else: # normalize everything
+                        # Compute inner loss
+                        total_loss, content_loss, style_loss = self.loss_function(self.imagenet_normalization_before_loss(content_images),
+                                                                                  self.imagenet_normalization_before_loss(style_image_batch),
+                                                                                  self.imagenet_normalization_before_loss(decoded_output),
+                                                                                  output_content_and_style_loss=True)
+                else:
+                    # Compute inner loss
+                    total_loss, content_loss, style_loss = self.loss_function(content_images,
+                                                                              style_image_batch,
+                                                                              decoded_output,
+                                                                              output_content_and_style_loss=True)
              
                 # Print the loss values if verbose is True
                 if self.verbose:
@@ -504,6 +558,15 @@ if __name__ == '__main__':
     
     parser.add_argument('--lambda_style', type=float, default=10.0,
                         help='Weighting term for style loss (lambda)')
+    
+    parser.add_argument('--loss_distance', type=str, default='euclidian',
+                        help='Distance metric for the loss function')
+    
+    parser.add_argument('--use_imagenet_normalization_for_swin', type=bool, default=True,
+                        help='Use ImageNet normalization for Swin Transformer')
+    
+    parser.add_argument('--use_imagenet_normalization_for_loss', type=bool, default=True,
+                        help='Use ImageNet normalization for the loss function')
     
     parser.add_argument('--save_every', type=int, default=100,
                         help='Save the model every n iterations')

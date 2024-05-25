@@ -346,6 +346,8 @@ if __name__ == "__main__":
     # calculating similarity loss is time consuming, so it is disabled by default for the test
     IF_OUTPUT_SIMILARITY_LOSS = False
 
+    USE_NORMALIZATION = True
+
 
     # set the device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -361,9 +363,22 @@ if __name__ == "__main__":
         transforms.ToTensor()
     ])
 
+    if USE_NORMALIZATION:
+        transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize((256, 256)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+        ])
+
+
     def apply_transform(image):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         return transform(image).unsqueeze(0)
+    
+
+
     
 
 
@@ -387,6 +402,14 @@ if __name__ == "__main__":
     output_image_1_figure_9 = apply_transform(output_image_1_figure_9_raw_image)
     output_image_3_figure_9 = apply_transform(output_image_3_figure_9_raw_image)
     output_image_5_figure_9 = apply_transform(output_image_5_figure_9_raw_image)
+
+
+    # find the content_image_figure_9_raw_image mean and std
+    content_image_figure_9_raw_image = cv2.cvtColor(content_image_figure_9_raw_image, cv2.COLOR_BGR2RGB)
+    content_image_figure_9_raw_image = content_image_figure_9_raw_image / 255.0
+    content_image_figure_9_raw_image = content_image_figure_9_raw_image.reshape(-1, 3)
+    content_image_figure_9_raw_image_mean = np.mean(content_image_figure_9_raw_image, axis=0)
+    content_image_figure_9_raw_image_std = np.std(content_image_figure_9_raw_image, axis=0)
 
 
     
