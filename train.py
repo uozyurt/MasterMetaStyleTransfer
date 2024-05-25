@@ -122,7 +122,7 @@ class Train:
 
 
         # Initialize the master style transfer model
-        master_style_transformer = MasterStyleTransferModel(
+        self.master_style_transformer = MasterStyleTransferModel(
             project_absolute_path=self.project_root,
             swin_model_relative_path=self.swin_model_relative_path,
             swin_variant=self.swin_variant,
@@ -162,15 +162,11 @@ class Train:
 
 
         # Send models to device
-        self.style_transformer.to(self.device)
-        self.swin_encoder = self.swin_encoder.to(self.device)
-        self.decoder.to(self.device)
+        self.master_style_transformer.to(self.device)
 
         if(self.verbose):
             # Print network information
-            self.print_network(self.style_transformer, 'StyleTransformer')
-            self.print_network(self.swin_encoder, 'SwinEncoder')
-            self.print_network(self.decoder, 'Decoder')
+            self.print_network(self.master_style_transformer, 'StyleTransformer')
 
 
 
@@ -178,15 +174,15 @@ class Train:
 
 
         # set the devices to training mode
-        self.style_transformer.train()
-        self.decoder.train()
+        self.master_style_transformer.style_transformer.train()
+        self.master_style_transformer.decoder.train()
         if not self.freeze_encoder:
             self.master_style_transformer.swin_encoder.train()
         else:
-            self.master_style_transform.swin_encoder.eval()
+            self.master_style_transformer.swin_encoder.eval()
 
             # Freeze the parameters of the encoder
-            for param in self.swin_encoder.parameters():
+            for param in self.master_style_transformer.swin_encoder.parameters():
                 param.requires_grad = False
 
         # declare the image transform
@@ -247,21 +243,21 @@ class Train:
         style_transformer_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_style_transformer_{iter}.pt")
         swin_encoder_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_swin_encoder_{iter}.pt")
         decoder_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_decoder_{iter}.pt")
-        torch.save(self.style_transformer.state_dict(), style_transformer_path)
-        torch.save(self.decoder.state_dict(), decoder_path)
+        torch.save(self.master_style_transformer.style_transformer.state_dict(), style_transformer_path)
+        torch.save(self.master_style_transformer.decoder.state_dict(), decoder_path)
 
         if not self.freeze_encoder:
-            torch.save(self.swin_encoder.state_dict(), swin_encoder_path)
+            torch.save(self.master_style_transformer.swin_encoder.state_dict(), swin_encoder_path)
 
     def copy_model_to_omega(self):
         """
         Deepcopy the model parameters to omega_style_transformer and omega_decoder, and omega_encoder (if not frozen).
         (Obtain omega parameters from theta parameters before each inner loop.)
         """
-        omega_style_transformer = deepcopy(self.style_transformer).to(self.device).train()
-        omega_decoder = deepcopy(self.decoder).to(self.device).train()
+        omega_style_transformer = deepcopy(self.master_style_transformer.style_transformer).to(self.device).train()
+        omega_decoder = deepcopy(self.master_style_transformer.decoder).to(self.device).train()
         if not self.freeze_encoder:
-            omega_encoder = deepcopy(self.swin_encoder).to(self.device).train()
+            omega_encoder = deepcopy(self.master_style_transformer.swin_encoder).to(self.device).train()
 
             return omega_style_transformer, omega_decoder, omega_encoder
 
@@ -374,10 +370,10 @@ class Train:
                 
 
             # load the transformer and decoder from main weights
-            omega_style_transformer.load_state_dict(self.style_transformer.state_dict())
-            omega_decoder.load_state_dict(self.decoder.state_dict())
+            omega_style_transformer.load_state_dict(self.master_style_transformer.style_transformer.state_dict())
+            omega_decoder.load_state_dict(self.master_style_transformer.decoder.state_dict())
             if not self.freeze_encoder:
-                omega_encoder.load_state_dict(self.swin_encoder.state_dict())
+                omega_encoder.load_state_dict(self.master_style_transformer.swin_encoder.state_dict())
 
 
 
@@ -394,8 +390,8 @@ class Train:
                     encoded_content = omega_encoder(content_images)
                     encoded_style = omega_encoder(style_image_batch)
                 else:
-                    encoded_content = self.swin_encoder(content_images)
-                    encoded_style = self.swin_encoder(style_image_batch)
+                    encoded_content = self.master_style_transformer.swin_encoder(content_images)
+                    encoded_style = self.master_style_transformer.swin_encoder(style_image_batch)
 
 
                 # style transfer using the style transformer with omega parameters, not the self.style_transformer
@@ -444,16 +440,16 @@ class Train:
             # Update theta parameters with omega parameters
 
             # Update the style transformer and decoder parameters
-            for name, param in self.style_transformer.named_parameters():
+            for name, param in self.master_style_transformer.style_transformer.named_parameters():
                 param.data += self.outer_lr * (omega_style_transformer.state_dict()[name] - param)
 
             # Update the encoder parameters if not frozen
             if not self.freeze_encoder:
-                for name, param in self.swin_encoder.named_parameters():
+                for name, param in self.master_style_transformer.swin_encoder.named_parameters():
                     param.data += self.outer_lr * (omega_encoder.state_dict()[name] - param)
 
             # Update the decoder parameters
-            for name, param in self.decoder.named_parameters():
+            for name, param in self.master_style_transformer.decoder.named_parameters():
                 param.data += self.outer_lr * (omega_decoder.state_dict()[name] - param)
             
 
