@@ -166,9 +166,6 @@ class custom_loss(nn.Module):
             self.feature_extractor_model = VGG19_custom(torch.load(feature_extractor_model_path))
 
 
-        # set the model to evaluation mode
-        self.feature_extractor_model.eval()
-
         # freeze the model
         for param in self.feature_extractor_model.parameters():
             param.requires_grad = False
@@ -192,7 +189,6 @@ class custom_loss(nn.Module):
         return self.get_overall_loss(content_image = content_image,
                                      style_image = style_image,
                                      output_image = output_image,
-                                     distance=distance,
                                      loss_weight = lambda_value,
                                      output_content_and_style_loss = output_content_and_style_loss,
                                      output_similarity_loss = output_similarity_loss)
@@ -204,7 +200,6 @@ class custom_loss(nn.Module):
                          content_image,
                          style_image,
                          output_image,
-                         distance="euclidian",
                          loss_weight=None,
                          output_content_and_style_loss=False,
                          output_similarity_loss=False):
@@ -212,6 +207,10 @@ class custom_loss(nn.Module):
         This function calculates the total loss (content loss + lambda * style loss) for the output image.
         It uses the custom VGG19 model to get the outputs from relu 2_1, relu 3_1, relu 4_1, relu 5_1 layers, as it is declared in the paper.
         """
+        assert content_image.shape == style_image.shape == output_image.shape, "All images should be in the exact same shape"
+        assert content_image.requires_grad == False, "Content image should not require gradient"
+        assert style_image.requires_grad == False, "Style image should not require gradient"
+
         # inputs are in shape: [batch_size, 3, 256, 256]
 
         # check if lambda value is given

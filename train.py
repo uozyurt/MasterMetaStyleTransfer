@@ -475,18 +475,16 @@ class Train:
 
                 if self.use_wandb:
                     # Log Iteration, Losses and Images
-                    wandb.log({'iteration': iteration,
-                            'total_loss': total_loss,
-                            'content_loss': content_loss,
-                            'style_loss': style_loss,
-                            'content_image': [wandb.Image(content_images[0])],
-                            'style_image': [wandb.Image(style_image)],
-                            'stylized_image': [wandb.Image(decoded_output[0])]})
+                    wandb.log({'total_loss': total_loss,
+                               'content_loss': content_loss,
+                               'style_loss': style_loss,
+                               'content_image': [wandb.Image(content_images[0])],
+                               'style_image': [wandb.Image(style_image)],
+                               'stylized_image': [wandb.Image(decoded_output[0])]})
             else:
                 if self.use_wandb:
                     # Log Iteration and Losses
-                    wandb.log({'iteration': iteration,
-                                'total_loss': total_loss,
+                    wandb.log({'total_loss': total_loss,
                                 'content_loss': content_loss,
                                 'style_loss': style_loss})
                     
@@ -581,7 +579,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_every', type=int, default=100,
                         help='Save the model every n iterations')
     
-    parser.add_argument('--max_iterations', type=int, default=20000,
+    parser.add_argument('--max_iterations', type=int, default=15000,
                         help='Number of iterations to train the model.')
 
 

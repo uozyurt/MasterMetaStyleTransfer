@@ -163,6 +163,14 @@ if __name__ == "__main__":
     # set the model to evaluation mode
     model.eval()
 
+
+    # print model summary
+    # print(model)
+
+    # print model total parameter count
+    print(f"Model total parameter count: {sum(p.numel() for p in model.parameters())}")
+
+
     # create a dummy input
 
     content_image = torch.randn(1, 3, 256, 256)
@@ -172,12 +180,6 @@ if __name__ == "__main__":
 
     output = model(content_image, style_image, transformer_layer_count=1)
 
-    
-    # print model summary
-    # print(model)
-
-    # print model total parameter count
-    print(f"Model total parameter count: {sum(p.numel() for p in model.parameters())}")
 
     print(f"Input shape: {content_image.shape}")
     print(f"Output shape: {output.shape}")

@@ -19,7 +19,8 @@ if(__name__ == "__main__"):
     transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((256, 256)),
-        transforms.ToTensor()
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # normalize with mean and std
     ])
     def apply_transform(image):
         return transform(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).unsqueeze(0)
