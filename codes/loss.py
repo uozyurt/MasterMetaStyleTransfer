@@ -79,10 +79,12 @@ class custom_loss(nn.Module):
                  feature_extractor_model_relative_path=None,
                  use_vgg19_with_batchnorm=False,
                  default_lambda_value=10,
-                 distance="euclidian"):
+                 distance_content="euclidian",
+                 distance_style="euclidian",):
         super().__init__()
 
-        assert distance in ["euclidian", "euclidian_squared"], "distance should be either 'euclidian' or 'euclidian_squared'"
+        assert distance_content in ["euclidian", "euclidian_squared"], "distance should be either 'euclidian' or 'euclidian_squared'"
+        assert distance_style in ["euclidian", "euclidian_squared"], "distance should be either 'euclidian' or 'euclidian_squared'"
 
 
         # if the relative path is not given, set it to the default
@@ -105,11 +107,11 @@ class custom_loss(nn.Module):
 
 
         # define the content loss for each term
-        if distance == "euclidian_squared":
+        if distance_content == "euclidian_squared":
 
             self.content_loss_each_term = lambda Fc, Fcs, IN : torch.mean(torch.square(torch.sub(IN(Fc), IN(Fcs))))
 
-        elif distance == "euclidian":
+        elif distance_content == "euclidian":
 
             self.content_loss_each_term = lambda Fc, Fcs, IN : torch.mean(torch.abs(torch.sub(IN(Fc), IN(Fcs))))
 
@@ -117,12 +119,12 @@ class custom_loss(nn.Module):
 
 
         # define the style loss for each term
-        if distance == "euclidian_squared":  
+        if distance_style == "euclidian_squared":  
 
             self.style_loss_each_term = lambda Fs, Fcs : torch.mean(torch.square(torch.sub(Fs.mean([2,3]), Fcs.mean([2,3])))) + \
                                                          torch.mean(torch.square(torch.sub(Fs.std([2,3]), Fcs.std([2,3]))))
             
-        elif distance == "euclidian":
+        elif distance_style == "euclidian":
 
             self.style_loss_each_term = lambda Fs, Fcs : torch.mean(torch.abs(torch.sub(Fs.mean([2,3]), Fcs.mean([2,3])))) + \
                                                          torch.mean(torch.abs(torch.sub(Fs.std([2,3]), Fcs.std([2,3]))))
@@ -132,12 +134,12 @@ class custom_loss(nn.Module):
 
 
         # define the similarity loss for each term
-        if distance == "euclidian_squared":
+        if distance_style == "euclidian_squared":
             self.similarity_loss_each_term = lambda normalized_similarity_map_C, normalized_similarity_map_CS : \
                                              torch.mean(torch.square(torch.sub( \
                                                                                get_scaled_self_cosine_distance_map_lower_triangle(normalized_similarity_map_C), \
                                                                                get_scaled_self_cosine_distance_map_lower_triangle(normalized_similarity_map_CS))))
-        elif distance == "euclidian":
+        elif distance_style == "euclidian":
             self.similarity_loss_each_term = lambda normalized_similarity_map_C, normalized_similarity_map_CS : \
                                              torch.mean(torch.abs(torch.sub( \
                                                                             get_scaled_self_cosine_distance_map_lower_triangle(normalized_similarity_map_C), \
@@ -359,23 +361,9 @@ if __name__ == "__main__":
 
     # define a function to preprocess the image
     
-    transform = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.Resize((256, 256)),
-        transforms.ToTensor()
-    ])
-
-    if USE_NORMALIZATION:
-        transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize((256, 256)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
-        ])
 
 
-    def apply_transform(image):
+    def apply_transform(image, transform):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         return transform(image).unsqueeze(0)
     
@@ -399,411 +387,418 @@ if __name__ == "__main__":
     output_image_3_figure_9_raw_image = cv2.imread(os.path.join(project_absolute_path, "codes/images_to_try_loss_function/figure9/output_layer_3.png"))
     output_image_5_figure_9_raw_image = cv2.imread(os.path.join(project_absolute_path, "codes/images_to_try_loss_function/figure9/output_layer_5.png"))
 
-    content_image_figure_9 = apply_transform(content_image_figure_9_raw_image)
-    style_image_figure_9 = apply_transform(style_image_figure_9_raw_image)
-    output_image_1_figure_9 = apply_transform(output_image_1_figure_9_raw_image)
-    output_image_3_figure_9 = apply_transform(output_image_3_figure_9_raw_image)
-    output_image_5_figure_9 = apply_transform(output_image_5_figure_9_raw_image)
 
 
-    # find the content_image_figure_9_raw_image mean and std
-    content_image_figure_9_raw_image = cv2.cvtColor(content_image_figure_9_raw_image, cv2.COLOR_BGR2RGB)
-    content_image_figure_9_raw_image = content_image_figure_9_raw_image / 255.0
-    content_image_figure_9_raw_image = content_image_figure_9_raw_image.reshape(-1, 3)
-    content_image_figure_9_raw_image_mean = np.mean(content_image_figure_9_raw_image, axis=0)
-    content_image_figure_9_raw_image_std = np.std(content_image_figure_9_raw_image, axis=0)
 
 
     
 
 
-    VGG_models_to_be_tried = ["VGG_without_batchnorm", "VGG_with_batchnorm"]
-    # VGG_models_to_be_tried = ["VGG_without_batchnorm"]
-    distance_to_be_tried = ["euclidian", "euclidian_squared"]
+    # VGG_models_to_be_tried = ["VGG_without_batchnorm", "VGG_with_batchnorm"]
+    VGG_models_to_be_tried = ["VGG_without_batchnorm"]
+    # distances_to_be_tried = [("euclidian", "euclidian"), ("euclidian", "euclidian_squared"), ("euclidian_squared", "euclidian"), ("euclidian_squared", "euclidian")]
+
+    distances_to_be_tried = [("euclidian_squared", "euclidian")]
+
+    norms_to_be_tried = [True, False]
+
 
     for custom_loss_instance_if_batchnorm in VGG_models_to_be_tried:
-        for distance in distance_to_be_tried:
+        for distance_content, distance_style in distances_to_be_tried:
+            for use_norm in norms_to_be_tried:
 
-            # create an instance of the custom loss class
-            if custom_loss_instance_if_batchnorm == "VGG_without_batchnorm":
-                custom_loss_instance = custom_loss(project_absolute_path,
-                                                feature_extractor_model_relative_path=os.path.join("weights", "vgg_19_last_layer_is_relu_5_1_output.pt"),
-                                                use_vgg19_with_batchnorm=False,
-                                                default_lambda_value=10,
-                                                distance=distance)
-            else:
-                custom_loss_instance = custom_loss(project_absolute_path,
-                                                feature_extractor_model_relative_path=os.path.join("weights", "vgg_19_last_layer_is_relu_5_1_output_bn.pt"),
-                                                use_vgg19_with_batchnorm=True,
-                                                default_lambda_value=10,
-                                                distance=distance)
-                                                
+                if use_norm:
+                    transform = transforms.Compose([
+                        transforms.ToPILImage(),
+                        transforms.Resize((256, 256)),
+                        transforms.ToTensor(),
+                        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                            std=[0.229, 0.224, 0.225])
+                    ])
+                else:
+                    transform = transforms.Compose([
+                        transforms.ToPILImage(),
+                        transforms.Resize((256, 256)),
+                        transforms.ToTensor()
+                    ])
+
+                content_image_figure_9 = apply_transform(content_image_figure_9_raw_image, transform)
+                style_image_figure_9 = apply_transform(style_image_figure_9_raw_image, transform)
+                output_image_1_figure_9 = apply_transform(output_image_1_figure_9_raw_image, transform)
+                output_image_3_figure_9 = apply_transform(output_image_3_figure_9_raw_image, transform)
+                output_image_5_figure_9 = apply_transform(output_image_5_figure_9_raw_image, transform)
+
+                # create an instance of the custom loss class
+                if custom_loss_instance_if_batchnorm == "VGG_without_batchnorm":
+                    custom_loss_instance = custom_loss(project_absolute_path,
+                                                    feature_extractor_model_relative_path=os.path.join("weights", "vgg_19_last_layer_is_relu_5_1_output.pt"),
+                                                    use_vgg19_with_batchnorm=False,
+                                                    default_lambda_value=10,
+                                                    distance_content=distance_content,
+                                                    distance_style=distance_style)
+                else:
+                    custom_loss_instance = custom_loss(project_absolute_path,
+                                                    feature_extractor_model_relative_path=os.path.join("weights", "vgg_19_last_layer_is_relu_5_1_output_bn.pt"),
+                                                    use_vgg19_with_batchnorm=True,
+                                                    default_lambda_value=10,
+                                                    distance_content=distance_content,
+                                                    distance_style=distance_style)
+                                                    
+                    
+                # set the model to evaluation mode
+                custom_loss_instance.eval()
+
+                # load the model to the device
+                custom_loss_instance.to(device)
+
                 
-            # set the model to evaluation mode
-            custom_loss_instance.eval()
-
-            # load the model to the device
-            custom_loss_instance.to(device)
-
-            
-            with torch.no_grad():
-                content_image_figure_9 = content_image_figure_9.to(device)
-                style_image_figure_9 = style_image_figure_9.to(device)
-
-                # calculate total loss for output_image_1
-                output_image_1_figure_9 = output_image_1_figure_9.to(device)
-                losses_1_figure_9 = custom_loss_instance(content_image_figure_9,
-                                                         style_image_figure_9,
-                                                         output_image_1_figure_9,
-                                                         output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
-                                                         output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
-                output_image_1_figure_9 = output_image_1_figure_9.cpu()
-
-                # calculate total loss for output_image_3
-                output_image_3_figure_9 = output_image_3_figure_9.to(device)
-                losses_3_figure_9 = custom_loss_instance(content_image_figure_9,
-                                                         style_image_figure_9,
-                                                         output_image_3_figure_9,
-                                                         output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
-                                                         output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
-                output_image_3_figure_9 = output_image_3_figure_9.cpu()
-
-
-
-                # calculate total loss for output_image_5
-                output_image_5_figure_9 = output_image_5_figure_9.to(device)
-                losses_5_figure_9 = custom_loss_instance(content_image_figure_9,
-                                                         style_image_figure_9,
-                                                         output_image_5_figure_9,
-                                                         output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
-                                                         output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
-                output_image_5_figure_9 = output_image_5_figure_9.cpu()
-            
-
-
-
-            if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
-                if IF_OUTPUT_SIMILARITY_LOSS:
-                    total_loss_1_figure_9, content_loss_1_figure_9, style_loss_1_figure_9, similarity_loss_1_figure_9 = losses_1_figure_9
-                else:
-                    total_loss_1_figure_9, content_loss_1_figure_9, style_loss_1_figure_9 = losses_1_figure_9
-            else:
-                if IF_OUTPUT_SIMILARITY_LOSS:
-                    total_loss_1_figure_9, similarity_loss_1_figure_9 = losses_1_figure_9
-                else:
-                    total_loss_1_figure_9 = losses_1_figure_9
-
-                    
-            if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
-                if IF_OUTPUT_SIMILARITY_LOSS:
-                    total_loss_3_figure_9, content_loss_3_figure_9, style_loss_3_figure_9, similarity_loss_3_figure_9 = losses_3_figure_9
-                else:
-                    total_loss_3_figure_9, content_loss_3_figure_9, style_loss_3_figure_9 = losses_3_figure_9
-            else:
-                if IF_OUTPUT_SIMILARITY_LOSS:
-                    total_loss_3_figure_9, similarity_loss_3_figure_9 = losses_3_figure_9
-                else:
-                    total_loss_3_figure_9 = losses_3_figure_9
-
-                    
-            if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
-                if IF_OUTPUT_SIMILARITY_LOSS:
-                    total_loss_5_figure_9, content_loss_5_figure_9, style_loss_5_figure_9, similarity_loss_5_figure_9 = losses_5_figure_9
-                else:
-                    total_loss_5_figure_9, content_loss_5_figure_9, style_loss_5_figure_9 = losses_5_figure_9
-            else:
-                if IF_OUTPUT_SIMILARITY_LOSS:
-                    total_loss_5_figure_9, similarity_loss_5_figure_9 = losses_5_figure_9
-                else:
-                    total_loss_5_figure_9 = losses_5_figure_9
-
-            # show the image plot with 3x3 grid
-            fig, ax = plt.subplots(3, 3, figsize=(12, 12))
-
-            # for the first row, show the content image, style image, and output image (figure 9, layer 1), adding total loss, content loss, and style loss
-            ax[0, 0].imshow(cv2.cvtColor(content_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
-            ax[0, 0].set_title("Content Image")
-            ax[0, 0].axis("off")
-
-            ax[0, 1].imshow(cv2.cvtColor(style_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
-            ax[0, 1].set_title("Style Image")
-            ax[0, 1].axis("off")
-
-            ax[0, 2].imshow(cv2.cvtColor(output_image_1_figure_9_raw_image, cv2.COLOR_BGR2RGB))
-            ax[0, 2].set_title("Output Image (Layer 1)")
-            ax[0, 2].axis("off")
-
-            # to the right of the output image, add the total loss, content loss, and style loss, adding the title
-            ax[0, 2].text(300, 50, f"From figure 9, layer 1 output of the paper", fontsize=12, color="green")
-            ax[0, 2].text(300, 100, f"Total Loss:       {total_loss_1_figure_9.item():.3}", fontsize=12, color="red")
-            if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
-                ax[0, 2].text(300, 150, f"Content Loss:    {content_loss_1_figure_9.item():.3}", fontsize=12, color="red")
-                ax[0, 2].text(300, 200, f"Style Loss:       {style_loss_1_figure_9.item():.3}", fontsize=12, color="red")
-                if IF_OUTPUT_SIMILARITY_LOSS:
-                    ax[0, 2].text(300, 250, f"Similarity Loss: {similarity_loss_1_figure_9.item():.3}", fontsize=12, color="red")
-            elif IF_OUTPUT_SIMILARITY_LOSS:
-                ax[0, 2].text(300, 150, f"Similarity Loss: {similarity_loss_1_figure_9.item():.3}", fontsize=12, color="red")
-
-
-
-            # for the second row, show the content image, style image, and output image (figure 9, layer 3)
-            ax[1, 0].imshow(cv2.cvtColor(content_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
-            ax[1, 0].set_title("Content Image")
-            ax[1, 0].axis("off")
-
-            ax[1, 1].imshow(cv2.cvtColor(style_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
-            ax[1, 1].set_title("Style Image")
-            ax[1, 1].axis("off")
-
-            ax[1, 2].imshow(cv2.cvtColor(output_image_3_figure_9_raw_image, cv2.COLOR_BGR2RGB))
-            ax[1, 2].set_title("Output Image (Layer 3)")
-            ax[1, 2].axis("off")
-
-            # to the right of the output image, add the total loss, content loss, and style loss, adding the title
-            ax[1, 2].text(300, 50, f"From figure 9, layer 3 output of the paper", fontsize=12, color="green")
-            ax[1, 2].text(300, 100, f"Total Loss:       {total_loss_3_figure_9.item():.3}", fontsize=12, color="red")
-            if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
-                ax[1, 2].text(300, 150, f"Content Loss:    {content_loss_3_figure_9.item():.3}", fontsize=12, color="red")
-                ax[1, 2].text(300, 200, f"Style Loss:       {style_loss_3_figure_9.item():.3}", fontsize=12, color="red")
-                if IF_OUTPUT_SIMILARITY_LOSS:
-                    ax[1, 2].text(300, 250, f"Similarity Loss: {similarity_loss_3_figure_9.item():.3}", fontsize=12, color="red")
-            elif IF_OUTPUT_SIMILARITY_LOSS:
-                ax[1, 2].text(300, 150, f"Similarity Loss: {similarity_loss_3_figure_9.item():.3}", fontsize=12, color="red")
-
-
-
-            # for the third row, show the content image, style image, and output image (figure 9, layer 5)
-            ax[2, 0].imshow(cv2.cvtColor(content_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
-            ax[2, 0].set_title("Content Image")
-            ax[2, 0].axis("off")
-
-            ax[2, 1].imshow(cv2.cvtColor(style_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
-            ax[2, 1].set_title("Style Image")
-            ax[2, 1].axis("off")
-
-            ax[2, 2].imshow(cv2.cvtColor(output_image_5_figure_9_raw_image, cv2.COLOR_BGR2RGB))
-            ax[2, 2].set_title("Output Image (Layer 5)")
-            ax[2, 2].axis("off")
-
-            # to the right of the output image, add the total loss, content loss, and style loss
-            ax[2, 2].text(300, 50, f"From figure 9, layer 5 output of the paper", fontsize=12, color="green")
-            ax[2, 2].text(300, 100, f"Total Loss:       {total_loss_5_figure_9.item():.3}", fontsize=12, color="red")
-            if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
-                ax[2, 2].text(300, 150, f"Content Loss:    {content_loss_5_figure_9.item():.3}", fontsize=12, color="red")
-                ax[2, 2].text(300, 200, f"Style Loss:       {style_loss_5_figure_9.item():.3}", fontsize=12, color="red")
-                if IF_OUTPUT_SIMILARITY_LOSS:
-                    ax[2, 2].text(300, 250, f"Similarity Loss: {similarity_loss_5_figure_9.item():.3}", fontsize=12, color="red")
-            elif IF_OUTPUT_SIMILARITY_LOSS:
-                ax[2, 2].text(300, 150, f"Similarity Loss: {similarity_loss_5_figure_9.item():.3}", fontsize=12, color="red")
-
-            plt.tight_layout()
-
-            # put a short title
-            if custom_loss_instance_if_batchnorm == "VGG_without_batchnorm":
-                if distance == "euclidian":
-                    fig.suptitle("VGG19 without batchnorm, euclidian distance", fontsize=25)
-                elif distance == "euclidian_squared":
-                    fig.suptitle("VGG19 without batchnorm, euclidian squared distance", fontsize=25)
-            elif custom_loss_instance_if_batchnorm == "VGG_with_batchnorm":
-                if distance == "euclidian":
-                    fig.suptitle("VGG19 with batchnorm, euclidian distance", fontsize=25)
-                elif distance == "euclidian_squared":
-                    fig.suptitle("VGG19 with batchnorm, euclidian squared distance", fontsize=25)
-
-            # save the figure
-            fig.savefig(os.path.join("codes", "images_to_try_loss_function", f"figure9_losses_{custom_loss_instance_if_batchnorm}_{distance}.png"))
-
-            
-            # close the figure
-            plt.close(fig)
-
-
-
-
-
-            # test with figure 4 images from the paper
-
-            for column_index in range(1, 6):
-                # define paths
-                current_column_content_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_content.png"
-                current_column_style_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_style.png"
-                current_column_output_AdaAttN_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_output_AdaAttN.png"
-                current_column_output_Master_ZS_layer1_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_output_Master_ZS_layer1.png"
-                current_column_output_Master_ZS_layer3_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_output_Master_ZS_layer3.png"
-                current_column_output_Master_FS_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_output_Master_FS.png"
-
-                # open the images
-                content_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_content_image_relative_path))
-                style_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_style_image_relative_path))
-                output_AdaAttN_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_output_AdaAttN_image_relative_path))
-                output_Master_ZS_layer1_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_output_Master_ZS_layer1_image_relative_path))
-                output_Master_ZS_layer3_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_output_Master_ZS_layer3_image_relative_path))
-                output_Master_FS_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_output_Master_FS_image_relative_path))
-
-                # preprocess the images
-                content_image = apply_transform(content_image_raw_image)
-                style_image = apply_transform(style_image_raw_image)
-                output_AdaAttN_image = apply_transform(output_AdaAttN_image_raw_image)
-                output_Master_ZS_layer1_image = apply_transform(output_Master_ZS_layer1_image_raw_image)
-                output_Master_ZS_layer3_image = apply_transform(output_Master_ZS_layer3_image_raw_image)
-                output_Master_FS_image = apply_transform(output_Master_FS_image_raw_image)
-
                 with torch.no_grad():
+                    content_image_figure_9 = content_image_figure_9.to(device)
+                    style_image_figure_9 = style_image_figure_9.to(device)
 
-                    content_image = content_image.to(device)
-                    style_image = style_image.to(device)
+                    # calculate total loss for output_image_1
+                    output_image_1_figure_9 = output_image_1_figure_9.to(device)
+                    losses_1_figure_9 = custom_loss_instance(content_image_figure_9,
+                                                            style_image_figure_9,
+                                                            output_image_1_figure_9,
+                                                            output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
+                                                            output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+                    output_image_1_figure_9 = output_image_1_figure_9.cpu()
 
-                    # calculate total loss for output_AdaAttN_image
-                    output_AdaAttN_image = output_AdaAttN_image.to(device)
-                    losses_AdaAttN          = custom_loss_instance(content_image,
-                                                                   style_image,
-                                                                   output_AdaAttN_image,
-                                                                   output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
-                                                                   output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
-                    output_AdaAttN_image = output_AdaAttN_image.cpu()
+                    # calculate total loss for output_image_3
+                    output_image_3_figure_9 = output_image_3_figure_9.to(device)
+                    losses_3_figure_9 = custom_loss_instance(content_image_figure_9,
+                                                            style_image_figure_9,
+                                                            output_image_3_figure_9,
+                                                            output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
+                                                            output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+                    output_image_3_figure_9 = output_image_3_figure_9.cpu()
 
-                    # calculate total loss for output_Master_ZS_layer1_image
-                    output_Master_ZS_layer1_image = output_Master_ZS_layer1_image.to(device)
-                    losses_Master_ZS_layer1 = custom_loss_instance(content_image,
-                                                                   style_image,
-                                                                   output_Master_ZS_layer1_image,
-                                                                   output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
-                                                                   output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
-                    output_Master_ZS_layer1_image = output_Master_ZS_layer1_image.cpu()
 
-                    # calculate total loss for output_Master_ZS_layer3_image
-                    output_Master_ZS_layer3_image = output_Master_ZS_layer3_image.to(device)
-                    losses_Master_ZS_layer3 = custom_loss_instance(content_image,
-                                                                   style_image,
-                                                                   output_Master_ZS_layer3_image,
-                                                                   output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
-                                                                   output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
-                    output_Master_ZS_layer3_image = output_Master_ZS_layer3_image.cpu()
 
-                    # calculate total loss for output_Master_FS_image
-                    output_Master_FS_image = output_Master_FS_image.to(device)
-                    losses_Master_FS        = custom_loss_instance(content_image,
-                                                                   style_image,
-                                                                   output_Master_FS_image,
-                                                                   output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
-                                                                   output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
-                    output_Master_FS_image = output_Master_FS_image.cpu()
+                    # calculate total loss for output_image_5
+                    output_image_5_figure_9 = output_image_5_figure_9.to(device)
+                    losses_5_figure_9 = custom_loss_instance(content_image_figure_9,
+                                                            style_image_figure_9,
+                                                            output_image_5_figure_9,
+                                                            output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
+                                                            output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+                    output_image_5_figure_9 = output_image_5_figure_9.cpu()
                 
-                # show the content and style images at the top row. At the bottom row, show 4 output images, adding the losses next to them
-                fig, ax = plt.subplots(5, 2, figsize=(12, 25))
 
-                # show the content image
-                ax[0, 0].imshow(cv2.cvtColor(content_image_raw_image, cv2.COLOR_BGR2RGB))
+
+
+                if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+                    if IF_OUTPUT_SIMILARITY_LOSS:
+                        total_loss_1_figure_9, content_loss_1_figure_9, style_loss_1_figure_9, similarity_loss_1_figure_9 = losses_1_figure_9
+                    else:
+                        total_loss_1_figure_9, content_loss_1_figure_9, style_loss_1_figure_9 = losses_1_figure_9
+                else:
+                    if IF_OUTPUT_SIMILARITY_LOSS:
+                        total_loss_1_figure_9, similarity_loss_1_figure_9 = losses_1_figure_9
+                    else:
+                        total_loss_1_figure_9 = losses_1_figure_9
+
+                        
+                if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+                    if IF_OUTPUT_SIMILARITY_LOSS:
+                        total_loss_3_figure_9, content_loss_3_figure_9, style_loss_3_figure_9, similarity_loss_3_figure_9 = losses_3_figure_9
+                    else:
+                        total_loss_3_figure_9, content_loss_3_figure_9, style_loss_3_figure_9 = losses_3_figure_9
+                else:
+                    if IF_OUTPUT_SIMILARITY_LOSS:
+                        total_loss_3_figure_9, similarity_loss_3_figure_9 = losses_3_figure_9
+                    else:
+                        total_loss_3_figure_9 = losses_3_figure_9
+
+                        
+                if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+                    if IF_OUTPUT_SIMILARITY_LOSS:
+                        total_loss_5_figure_9, content_loss_5_figure_9, style_loss_5_figure_9, similarity_loss_5_figure_9 = losses_5_figure_9
+                    else:
+                        total_loss_5_figure_9, content_loss_5_figure_9, style_loss_5_figure_9 = losses_5_figure_9
+                else:
+                    if IF_OUTPUT_SIMILARITY_LOSS:
+                        total_loss_5_figure_9, similarity_loss_5_figure_9 = losses_5_figure_9
+                    else:
+                        total_loss_5_figure_9 = losses_5_figure_9
+
+
+                # show the image plot with 3x3 grid
+                fig, ax = plt.subplots(3, 3, figsize=(12, 12))
+
+                # for the first row, show the content image, style image, and output image (figure 9, layer 1), adding total loss, content loss, and style loss
+                ax[0, 0].imshow(cv2.cvtColor(content_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
                 ax[0, 0].set_title("Content Image")
                 ax[0, 0].axis("off")
 
-                # show the style image
-                ax[0, 1].imshow(cv2.cvtColor(style_image_raw_image, cv2.COLOR_BGR2RGB))
+                ax[0, 1].imshow(cv2.cvtColor(style_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
                 ax[0, 1].set_title("Style Image")
                 ax[0, 1].axis("off")
 
-                # show the AdaAttN output image
-                ax[1, 0].imshow(cv2.cvtColor(output_AdaAttN_image_raw_image, cv2.COLOR_BGR2RGB))
-                ax[1, 0].set_title("AdaAttN Output")
-                ax[1, 0].axis("off")
-                ax[1, 0].text(300, 50, f"AdaAttN Output", fontsize=25, color="green")
-                ax[1, 0].text(300, 100, f"Total Loss:       {losses_AdaAttN[0].item():.3}", fontsize=25, color="red")
+                ax[0, 2].imshow(cv2.cvtColor(output_image_1_figure_9_raw_image, cv2.COLOR_BGR2RGB))
+                ax[0, 2].set_title("Output Image (Layer 1)")
+                ax[0, 2].axis("off")
+
+                # to the right of the output image, add the total loss, content loss, and style loss, adding the title
+                ax[0, 2].text(300, 50, f"From figure 9, layer 1 output of the paper", fontsize=12, color="green")
+                ax[0, 2].text(300, 100, f"Total Loss:       {total_loss_1_figure_9.item():.3}", fontsize=12, color="red")
                 if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
-                    ax[1, 0].text(300, 150, f"Content Loss:    {losses_AdaAttN[1].item():.3}", fontsize=25, color="red")
-                    ax[1, 0].text(300, 200, f"Style Loss:       {losses_AdaAttN[2].item():.3}", fontsize=25, color="red")
+                    ax[0, 2].text(300, 150, f"Content Loss:    {content_loss_1_figure_9.item():.3}", fontsize=12, color="red")
+                    ax[0, 2].text(300, 200, f"Style Loss:       {style_loss_1_figure_9.item():.3}", fontsize=12, color="red")
                     if IF_OUTPUT_SIMILARITY_LOSS:
-                        ax[1, 0].text(300, 250, f"Similarity Loss: {losses_AdaAttN[3].item():.3}", fontsize=25, color="red")
-                else:
-                    if IF_OUTPUT_SIMILARITY_LOSS:
-                        ax[1, 0].text(300, 150, f"Similarity Loss: {losses_AdaAttN[1].item():.3}", fontsize=25, color="red")
-                
-                # make ax[1, 1] empty
+                        ax[0, 2].text(300, 250, f"Similarity Loss: {similarity_loss_1_figure_9.item():.3}", fontsize=12, color="red")
+                elif IF_OUTPUT_SIMILARITY_LOSS:
+                    ax[0, 2].text(300, 150, f"Similarity Loss: {similarity_loss_1_figure_9.item():.3}", fontsize=12, color="red")
+
+
+
+                # for the second row, show the content image, style image, and output image (figure 9, layer 3)
+                ax[1, 0].imshow(cv2.cvtColor(content_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
+                ax[1, 0].set_title("Content Image")
+                ax[1, 0].axis("off")
+
+                ax[1, 1].imshow(cv2.cvtColor(style_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
+                ax[1, 1].set_title("Style Image")
                 ax[1, 1].axis("off")
 
+                ax[1, 2].imshow(cv2.cvtColor(output_image_3_figure_9_raw_image, cv2.COLOR_BGR2RGB))
+                ax[1, 2].set_title("Output Image (Layer 3)")
+                ax[1, 2].axis("off")
 
-                # show the Master_ZS_layer1 output image
-                ax[2, 0].imshow(cv2.cvtColor(output_Master_ZS_layer1_image_raw_image, cv2.COLOR_BGR2RGB))
-                ax[2, 0].set_title("Master ZS Layer 1 Output")
-                ax[2, 0].axis("off")
-                ax[2, 0].text(300, 50, f"Master ZS Layer 1 Output", fontsize=25, color="green")
-                ax[2, 0].text(300, 100, f"Total Loss:       {losses_Master_ZS_layer1[0].item():.3}", fontsize=25, color="red")
+                # to the right of the output image, add the total loss, content loss, and style loss, adding the title
+                ax[1, 2].text(300, 50, f"From figure 9, layer 3 output of the paper", fontsize=12, color="green")
+                ax[1, 2].text(300, 100, f"Total Loss:       {total_loss_3_figure_9.item():.3}", fontsize=12, color="red")
                 if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
-                    ax[2, 0].text(300, 150, f"Content Loss:    {losses_Master_ZS_layer1[1].item():.3}", fontsize=25, color="red")
-                    ax[2, 0].text(300, 200, f"Style Loss:       {losses_Master_ZS_layer1[2].item():.3}", fontsize=25, color="red")
+                    ax[1, 2].text(300, 150, f"Content Loss:    {content_loss_3_figure_9.item():.3}", fontsize=12, color="red")
+                    ax[1, 2].text(300, 200, f"Style Loss:       {style_loss_3_figure_9.item():.3}", fontsize=12, color="red")
                     if IF_OUTPUT_SIMILARITY_LOSS:
-                        ax[2, 0].text(300, 250, f"Similarity Loss: {losses_Master_ZS_layer1[3].item():.3}", fontsize=25, color="red")
-                else:
-                    if IF_OUTPUT_SIMILARITY_LOSS:
-                        ax[2, 0].text(300, 150, f"Similarity Loss: {losses_Master_ZS_layer1[1].item():.3}", fontsize=25, color="red")
-                
-                # make ax[2, 1] empty
+                        ax[1, 2].text(300, 250, f"Similarity Loss: {similarity_loss_3_figure_9.item():.3}", fontsize=12, color="red")
+                elif IF_OUTPUT_SIMILARITY_LOSS:
+                    ax[1, 2].text(300, 150, f"Similarity Loss: {similarity_loss_3_figure_9.item():.3}", fontsize=12, color="red")
+
+
+
+                # for the third row, show the content image, style image, and output image (figure 9, layer 5)
+                ax[2, 0].imshow(cv2.cvtColor(content_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
+                ax[2, 0].set_title("Content Image")
+                ax[2, 0].axis("off")
+
+                ax[2, 1].imshow(cv2.cvtColor(style_image_figure_9_raw_image, cv2.COLOR_BGR2RGB))
+                ax[2, 1].set_title("Style Image")
                 ax[2, 1].axis("off")
 
+                ax[2, 2].imshow(cv2.cvtColor(output_image_5_figure_9_raw_image, cv2.COLOR_BGR2RGB))
+                ax[2, 2].set_title("Output Image (Layer 5)")
+                ax[2, 2].axis("off")
 
-                # show the Master_ZS_layer3 output image
-                ax[3, 0].imshow(cv2.cvtColor(output_Master_ZS_layer3_image_raw_image, cv2.COLOR_BGR2RGB))
-                ax[3, 0].set_title("Master ZS Layer 3 Output")
-                ax[3, 0].axis("off")
-                ax[3, 0].text(300, 50, f"Master ZS Layer 3 Output", fontsize=25, color="green")
-                ax[3, 0].text(300, 100, f"Total Loss:       {losses_Master_ZS_layer3[0].item():.3}", fontsize=25, color="red")
+                # to the right of the output image, add the total loss, content loss, and style loss
+                ax[2, 2].text(300, 50, f"From figure 9, layer 5 output of the paper", fontsize=12, color="green")
+                ax[2, 2].text(300, 100, f"Total Loss:       {total_loss_5_figure_9.item():.3}", fontsize=12, color="red")
                 if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
-                    ax[3, 0].text(300, 150, f"Content Loss:    {losses_Master_ZS_layer3[1].item():.3}", fontsize=25, color="red")
-                    ax[3, 0].text(300, 200, f"Style Loss:       {losses_Master_ZS_layer3[2].item():.3}", fontsize=25, color="red")
+                    ax[2, 2].text(300, 150, f"Content Loss:    {content_loss_5_figure_9.item():.3}", fontsize=12, color="red")
+                    ax[2, 2].text(300, 200, f"Style Loss:       {style_loss_5_figure_9.item():.3}", fontsize=12, color="red")
                     if IF_OUTPUT_SIMILARITY_LOSS:
-                        ax[3, 0].text(300, 250, f"Similarity Loss: {losses_Master_ZS_layer3[3].item():.3}", fontsize=25, color="red")
-                else:
-                    if IF_OUTPUT_SIMILARITY_LOSS:
-                        ax[3, 0].text(300, 150, f"Similarity Loss: {losses_Master_ZS_layer3[1].item():.3}", fontsize=25, color="red")
-                
-                # make ax[3, 1] empty
-                ax[3, 1].axis("off")
-
-
-                # show the Master_FS output image
-                ax[4, 0].imshow(cv2.cvtColor(output_Master_FS_image_raw_image, cv2.COLOR_BGR2RGB))
-                ax[4, 0].set_title("Master FS Output")
-                ax[4, 0].axis("off")
-                ax[4, 0].text(300, 50, f"Master FS Output", fontsize=25, color="green")
-                ax[4, 0].text(300, 100, f"Total Loss:       {losses_Master_FS[0].item():.3}", fontsize=25, color="red")
-                if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
-                    ax[4, 0].text(300, 150, f"Content Loss:    {losses_Master_FS[1].item():.3}", fontsize=25, color="red")
-                    ax[4, 0].text(300, 200, f"Style Loss:       {losses_Master_FS[2].item():.3}", fontsize=25, color="red")
-                    if IF_OUTPUT_SIMILARITY_LOSS:
-                        ax[4, 0].text(300, 250, f"Similarity Loss: {losses_Master_FS[3].item():.3}", fontsize=25, color="red")
-                else:
-                    if IF_OUTPUT_SIMILARITY_LOSS:
-                        ax[4, 0].text(300, 150, f"Similarity Loss: {losses_Master_FS[1].item():.3}", fontsize=25, color="red")
-                
-                # make ax[4, 1] empty
-                ax[4, 1].axis("off")
-
-
-
+                        ax[2, 2].text(300, 250, f"Similarity Loss: {similarity_loss_5_figure_9.item():.3}", fontsize=12, color="red")
+                elif IF_OUTPUT_SIMILARITY_LOSS:
+                    ax[2, 2].text(300, 150, f"Similarity Loss: {similarity_loss_5_figure_9.item():.3}", fontsize=12, color="red")
 
                 plt.tight_layout()
 
                 # put a short title
                 if custom_loss_instance_if_batchnorm == "VGG_without_batchnorm":
-                    if distance == "euclidian":
-                        fig.suptitle("VGG19 without batchnorm, euclidian distance", fontsize=25)
-                    elif distance == "euclidian_squared":
-                        fig.suptitle("VGG19 without batchnorm, euclidian squared distance", fontsize=25)
+                    fig.suptitle(f"VGG19 without batchnorm, c_dist:{distance_content}, s_dist:{distance_style}, norm:{use_norm}", fontsize=17)
                 elif custom_loss_instance_if_batchnorm == "VGG_with_batchnorm":
-                    if distance == "euclidian":
-                        fig.suptitle("VGG19 with batchnorm, euclidian distance", fontsize=25)
-                    elif distance == "euclidian_squared":
-                        fig.suptitle("VGG19 with batchnorm, euclidian squared distance", fontsize=25)
-                
-                # save the figure
-                fig.savefig(os.path.join("codes", "images_to_try_loss_function", f"figure4_losses_column{column_index}_{custom_loss_instance_if_batchnorm}_{distance}.png"))
+                    fig.suptitle(f"VGG19 with batchnorm, c_dist:{distance_content}, s_dist:{distance_style}, norm:{use_norm}", fontsize=17)
 
+                # save the figure
+                fig.savefig(os.path.join("codes", "images_to_try_loss_function", f"figure9_losses_{custom_loss_instance_if_batchnorm}_{distance_content}_{distance_style}_{use_norm}.png"))
+
+                
                 # close the figure
                 plt.close(fig)
 
-                # print the losses
-                print(f"Figure-4 Column-{column_index} losses:")
-                print(f"AdaAttN:           {[round(x.item(), 3) for x in losses_AdaAttN]}")
-                print(f"Master ZS Layer 1: {[round(x.item(), 3) for x in losses_Master_ZS_layer1]}")
-                print(f"Master ZS Layer 3: {[round(x.item(), 3) for x in losses_Master_ZS_layer3]}")
-                print(f"Master FS:         {[round(x.item(), 3) for x in losses_Master_FS]}")
-                print("\n\n\n")
+
+
+
+
+                # test with figure 4 images from the paper
+
+                for column_index in range(1, 6):
+                    # define paths
+                    current_column_content_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_content.png"
+                    current_column_style_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_style.png"
+                    current_column_output_AdaAttN_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_output_AdaAttN.png"
+                    current_column_output_Master_ZS_layer1_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_output_Master_ZS_layer1.png"
+                    current_column_output_Master_ZS_layer3_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_output_Master_ZS_layer3.png"
+                    current_column_output_Master_FS_image_relative_path = f"codes/images_to_try_loss_function/figure4/figure4_column{column_index}_output_Master_FS.png"
+
+                    # open the images
+                    content_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_content_image_relative_path))
+                    style_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_style_image_relative_path))
+                    output_AdaAttN_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_output_AdaAttN_image_relative_path))
+                    output_Master_ZS_layer1_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_output_Master_ZS_layer1_image_relative_path))
+                    output_Master_ZS_layer3_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_output_Master_ZS_layer3_image_relative_path))
+                    output_Master_FS_image_raw_image = cv2.imread(os.path.join(project_absolute_path, current_column_output_Master_FS_image_relative_path))
+
+                    # preprocess the images
+                    content_image = apply_transform(content_image_raw_image, transform)
+                    style_image = apply_transform(style_image_raw_image, transform)
+                    output_AdaAttN_image = apply_transform(output_AdaAttN_image_raw_image, transform)
+                    output_Master_ZS_layer1_image = apply_transform(output_Master_ZS_layer1_image_raw_image, transform)
+                    output_Master_ZS_layer3_image = apply_transform(output_Master_ZS_layer3_image_raw_image, transform)
+                    output_Master_FS_image = apply_transform(output_Master_FS_image_raw_image, transform)
+
+                    with torch.no_grad():
+
+                        content_image = content_image.to(device)
+                        style_image = style_image.to(device)
+
+                        # calculate total loss for output_AdaAttN_image
+                        output_AdaAttN_image = output_AdaAttN_image.to(device)
+                        losses_AdaAttN          = custom_loss_instance(content_image,
+                                                                    style_image,
+                                                                    output_AdaAttN_image,
+                                                                    output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
+                                                                    output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+                        output_AdaAttN_image = output_AdaAttN_image.cpu()
+
+                        # calculate total loss for output_Master_ZS_layer1_image
+                        output_Master_ZS_layer1_image = output_Master_ZS_layer1_image.to(device)
+                        losses_Master_ZS_layer1 = custom_loss_instance(content_image,
+                                                                    style_image,
+                                                                    output_Master_ZS_layer1_image,
+                                                                    output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
+                                                                    output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+                        output_Master_ZS_layer1_image = output_Master_ZS_layer1_image.cpu()
+
+                        # calculate total loss for output_Master_ZS_layer3_image
+                        output_Master_ZS_layer3_image = output_Master_ZS_layer3_image.to(device)
+                        losses_Master_ZS_layer3 = custom_loss_instance(content_image,
+                                                                    style_image,
+                                                                    output_Master_ZS_layer3_image,
+                                                                    output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
+                                                                    output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+                        output_Master_ZS_layer3_image = output_Master_ZS_layer3_image.cpu()
+
+                        # calculate total loss for output_Master_FS_image
+                        output_Master_FS_image = output_Master_FS_image.to(device)
+                        losses_Master_FS        = custom_loss_instance(content_image,
+                                                                    style_image,
+                                                                    output_Master_FS_image,
+                                                                    output_content_and_style_loss=IF_OUTPUT_CONTENT_AND_STYLE_LOSS,
+                                                                    output_similarity_loss=IF_OUTPUT_SIMILARITY_LOSS)
+                        output_Master_FS_image = output_Master_FS_image.cpu()
+                    
+                    # show the content and style images at the top row. At the bottom row, show 4 output images, adding the losses next to them
+                    fig, ax = plt.subplots(5, 2, figsize=(12, 25))
+
+                    # show the content image
+                    ax[0, 0].imshow(cv2.cvtColor(content_image_raw_image, cv2.COLOR_BGR2RGB))
+                    ax[0, 0].set_title("Content Image")
+                    ax[0, 0].axis("off")
+
+                    # show the style image
+                    ax[0, 1].imshow(cv2.cvtColor(style_image_raw_image, cv2.COLOR_BGR2RGB))
+                    ax[0, 1].set_title("Style Image")
+                    ax[0, 1].axis("off")
+
+                    # show the AdaAttN output image
+                    ax[1, 0].imshow(cv2.cvtColor(output_AdaAttN_image_raw_image, cv2.COLOR_BGR2RGB))
+                    ax[1, 0].set_title("AdaAttN Output")
+                    ax[1, 0].axis("off")
+                    ax[1, 0].text(300, 50, f"AdaAttN Output", fontsize=27, color="green")
+                    ax[1, 0].text(300, 100, f"Total Loss:       {losses_AdaAttN[0].item():.3}", fontsize=27, color="red")
+                    if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+                        ax[1, 0].text(300, 150, f"Content Loss:    {losses_AdaAttN[1].item():.3}", fontsize=27, color="red")
+                        ax[1, 0].text(300, 200, f"Style Loss:       {losses_AdaAttN[2].item():.3}", fontsize=27, color="red")
+                        if IF_OUTPUT_SIMILARITY_LOSS:
+                            ax[1, 0].text(300, 250, f"Similarity Loss: {losses_AdaAttN[3].item():.3}", fontsize=27, color="red")
+                    else:
+                        if IF_OUTPUT_SIMILARITY_LOSS:
+                            ax[1, 0].text(300, 150, f"Similarity Loss: {losses_AdaAttN[1].item():.3}", fontsize=27, color="red")
+                    
+                    # make ax[1, 1] empty
+                    ax[1, 1].axis("off")
+
+
+                    # show the Master_ZS_layer1 output image
+                    ax[2, 0].imshow(cv2.cvtColor(output_Master_ZS_layer1_image_raw_image, cv2.COLOR_BGR2RGB))
+                    ax[2, 0].set_title("Master ZS Layer 1 Output")
+                    ax[2, 0].axis("off")
+                    ax[2, 0].text(300, 50, f"Master ZS Layer 1 Output", fontsize=27, color="green")
+                    ax[2, 0].text(300, 100, f"Total Loss:       {losses_Master_ZS_layer1[0].item():.3}", fontsize=27, color="red")
+                    if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+                        ax[2, 0].text(300, 150, f"Content Loss:    {losses_Master_ZS_layer1[1].item():.3}", fontsize=27, color="red")
+                        ax[2, 0].text(300, 200, f"Style Loss:       {losses_Master_ZS_layer1[2].item():.3}", fontsize=27, color="red")
+                        if IF_OUTPUT_SIMILARITY_LOSS:
+                            ax[2, 0].text(300, 250, f"Similarity Loss: {losses_Master_ZS_layer1[3].item():.3}", fontsize=27, color="red")
+                    else:
+                        if IF_OUTPUT_SIMILARITY_LOSS:
+                            ax[2, 0].text(300, 150, f"Similarity Loss: {losses_Master_ZS_layer1[1].item():.3}", fontsize=27, color="red")
+                    
+                    # make ax[2, 1] empty
+                    ax[2, 1].axis("off")
+
+
+                    # show the Master_ZS_layer3 output image
+                    ax[3, 0].imshow(cv2.cvtColor(output_Master_ZS_layer3_image_raw_image, cv2.COLOR_BGR2RGB))
+                    ax[3, 0].set_title("Master ZS Layer 3 Output")
+                    ax[3, 0].axis("off")
+                    ax[3, 0].text(300, 50, f"Master ZS Layer 3 Output", fontsize=27, color="green")
+                    ax[3, 0].text(300, 100, f"Total Loss:       {losses_Master_ZS_layer3[0].item():.3}", fontsize=27, color="red")
+                    if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+                        ax[3, 0].text(300, 150, f"Content Loss:    {losses_Master_ZS_layer3[1].item():.3}", fontsize=27, color="red")
+                        ax[3, 0].text(300, 200, f"Style Loss:       {losses_Master_ZS_layer3[2].item():.3}", fontsize=27, color="red")
+                        if IF_OUTPUT_SIMILARITY_LOSS:
+                            ax[3, 0].text(300, 250, f"Similarity Loss: {losses_Master_ZS_layer3[3].item():.3}", fontsize=27, color="red")
+                    else:
+                        if IF_OUTPUT_SIMILARITY_LOSS:
+                            ax[3, 0].text(300, 150, f"Similarity Loss: {losses_Master_ZS_layer3[1].item():.3}", fontsize=27, color="red")
+                    
+                    # make ax[3, 1] empty
+                    ax[3, 1].axis("off")
+
+
+                    # show the Master_FS output image
+                    ax[4, 0].imshow(cv2.cvtColor(output_Master_FS_image_raw_image, cv2.COLOR_BGR2RGB))
+                    ax[4, 0].set_title("Master FS Output")
+                    ax[4, 0].axis("off")
+                    ax[4, 0].text(300, 50, f"Master FS Output", fontsize=27, color="green")
+                    ax[4, 0].text(300, 100, f"Total Loss:       {losses_Master_FS[0].item():.3}", fontsize=27, color="red")
+                    if IF_OUTPUT_CONTENT_AND_STYLE_LOSS:
+                        ax[4, 0].text(300, 150, f"Content Loss:    {losses_Master_FS[1].item():.3}", fontsize=27, color="red")
+                        ax[4, 0].text(300, 200, f"Style Loss:       {losses_Master_FS[2].item():.3}", fontsize=27, color="red")
+                        if IF_OUTPUT_SIMILARITY_LOSS:
+                            ax[4, 0].text(300, 250, f"Similarity Loss: {losses_Master_FS[3].item():.3}", fontsize=27, color="red")
+                    else:
+                        if IF_OUTPUT_SIMILARITY_LOSS:
+                            ax[4, 0].text(300, 150, f"Similarity Loss: {losses_Master_FS[1].item():.3}", fontsize=27, color="red")
+                    
+                    # make ax[4, 1] empty
+                    ax[4, 1].axis("off")
+
+
+
+
+                    plt.tight_layout()
+
+                    # put a short title
+                    if custom_loss_instance_if_batchnorm == "VGG_without_batchnorm":
+                        fig.suptitle(f"VGG19 without batchnorm, c_dist:{distance_content}, s_dist:{distance_style}, norm:{use_norm}", fontsize=17)
+                    elif custom_loss_instance_if_batchnorm == "VGG_with_batchnorm":
+                        fig.suptitle(f"VGG19 with batchnorm, c_dist:{distance_content}, s_dist:{distance_style}, norm:{use_norm}", fontsize=17)
+                    
+                    # save the figure
+                    fig.savefig(os.path.join("codes", "images_to_try_loss_function", f"figure4_losses_column{column_index}_{custom_loss_instance_if_batchnorm}_{distance_content}_{distance_style}_{use_norm}.png"))
+
+                    # close the figure
+                    plt.close(fig)
+
+                    # print the losses
+                    print(f"Figure-4 Column-{column_index} losses:")
+                    print(f"AdaAttN:           {[round(x.item(), 3) for x in losses_AdaAttN]}")
+                    print(f"Master ZS Layer 1: {[round(x.item(), 3) for x in losses_Master_ZS_layer1]}")
+                    print(f"Master ZS Layer 3: {[round(x.item(), 3) for x in losses_Master_ZS_layer3]}")
+                    print(f"Master FS:         {[round(x.item(), 3) for x in losses_Master_FS]}")
+                    print("\n\n\n")
