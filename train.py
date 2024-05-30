@@ -68,10 +68,13 @@ class Train:
         self.max_layers = config.max_layers
         self.lambda_style = config.lambda_style
         self.loss_distance = config.loss_distance
+        self.use_random_crop = config.use_random_crop
         self.use_imagenet_normalization_for_swin = config.use_imagenet_normalization_for_swin
         self.use_imagenet_normalization_for_loss = config.use_imagenet_normalization_for_loss
         self.save_every = config.save_every
+        self.save_every_for_model = config.save_every_for_model
         self.max_iterations = config.max_iterations
+
 
 
 
@@ -108,6 +111,8 @@ class Train:
         self.style_decoder_use_Key_instance_norm_after_linear_transformation = config.style_decoder_use_Key_instance_norm_after_linear_transformation
         self.style_decoder_exclude_MLP_after_Fcs_self_MHA = config.style_decoder_exclude_MLP_after_Fcs_self_MHA
         self.decoder_initializer = config.decoder_initializer
+        self.style_transformer_load_pretrained_weights = config.style_transformer_load_pretrained_weights
+        self.style_transformer_pretrained_weights_path = config.style_transformer_pretrained_weights_path
 
 
 
@@ -183,8 +188,13 @@ class Train:
             style_decoder_use_regular_MHA_instead_of_Swin_at_the_end=self.style_decoder_use_regular_MHA_instead_of_Swin_at_the_end,
             style_decoder_use_Key_instance_norm_after_linear_transformation=self.style_decoder_use_Key_instance_norm_after_linear_transformation,
             style_decoder_exclude_MLP_after_Fcs_self_MHA=self.style_decoder_exclude_MLP_after_Fcs_self_MHA,
+            style_transformer_load_pretrained_weights=self.style_transformer_load_pretrained_weights,
+            style_transformer_pretrained_weights_path=self.style_transformer_pretrained_weights_path,
             decoder_initializer=self.decoder_initializer
         )
+
+
+        self.master_style_transformer.apply(self._init_weights_style_transformer)
 
 
 
@@ -220,20 +230,45 @@ class Train:
 
         # declare the image transform
         if self.use_imagenet_normalization_for_swin:
-            self.transform = transforms.Compose([
-                transforms.ToPILImage(), # -> PIL image
-                transforms.Resize((512, 512)), # -> resize to 512x512
-                transforms.RandomCrop((256,256)) , # random crop to 256x256
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # normalize with mean and std
-            ])
+            if self.use_random_crop:
+                if self.verbose:
+                    print("Using random crop for the images!")
+                self.transform = transforms.Compose([
+                    transforms.ToPILImage(), # -> PIL image
+                    transforms.Resize((512, 512)), # -> resize to 512x512
+                    transforms.RandomCrop((256,256)) , # random crop to 256x256
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # normalize with mean and std
+                ])
+            else:
+                if self.verbose:
+                    print("Using center crop for the images!")
+                self.transform = transforms.Compose([
+                    transforms.ToPILImage(), # -> PIL image
+                    transforms.Resize((512, 512)), # -> resize to 512x512
+                    transforms.CenterCrop((256,256)) , # center crop to 256x256
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # normalize with mean and std
+                ])
         else:
-            self.transform = transforms.Compose([
-                transforms.ToPILImage(), # -> PIL image
-                transforms.Resize((512, 512)), # -> resize to 512x512
-                transforms.RandomCrop((256,256)) , # random crop to 256x256
-                transforms.ToTensor()
-            ])
+            if self.use_random_crop:
+                if self.verbose:
+                    print("Using random crop for the images!")
+                self.transform = transforms.Compose([
+                    transforms.ToPILImage(), # -> PIL image
+                    transforms.Resize((512, 512)), # -> resize to 512x512
+                    transforms.RandomCrop((256,256)) , # random crop to 256x256
+                    transforms.ToTensor()
+                ])
+            else:
+                if self.verbose:
+                    print("Using center crop for the images!")
+                self.transform = transforms.Compose([
+                    transforms.ToPILImage(), # -> PIL image
+                    transforms.Resize((512, 512)), # -> resize to 512x512
+                    transforms.CenterCrop((256,256)) , # center crop to 256x256
+                    transforms.ToTensor()
+                ])
 
         
         # declare normalization for the loss function
@@ -248,6 +283,17 @@ class Train:
                                          default_lambda_value=self.lambda_style,
                                          distance=self.loss_distance).to(self.device)
 
+
+
+    # Initialize the weights of the model (style transformer part)
+    def _init_weights_style_transformer(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
 
 
 
@@ -470,9 +516,6 @@ class Train:
 
 
             if iteration % self.save_every == 0:
-                # Save model periodically
-                self.save_models(iteration)
-
                 if self.use_wandb:
                     # Log Iteration, Losses and Images
                     wandb.log({'total_loss': total_loss,
@@ -488,6 +531,10 @@ class Train:
                                 'content_loss': content_loss,
                                 'style_loss': style_loss})
                     
+            if iteration % self.save_every_for_model == 0:
+                # Save model periodically
+                self.save_models(iteration)
+                    
 
             # put some new lines for better readability if verbose is True
             if self.verbose:
@@ -497,6 +544,27 @@ class Train:
 
 
 if __name__ == '__main__':
+
+    # define str2bool function for argparse
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+    
+    def str2listint(v):
+        # strip the string and split it by comma
+        v = v.strip().split(',')
+        # convert the string to integer
+        v = [int(i) for i in v]
+        return v
+
+        
+
     parser = argparse.ArgumentParser(description='Train Master Model')
 
     # project path 
@@ -522,8 +590,9 @@ if __name__ == '__main__':
     parser.add_argument('--loss_model_path', type=str, default="weights/vgg_19_last_layer_is_relu_5_1_output.pt",
                         help="Relative path to the pre-trained VGG19 model cut at the last layer of relu 5_1.")
     
-    parser.add_argument('--use_vgg19_with_batchnorm', type=bool, default=False,
+    parser.add_argument('--use_vgg19_with_batchnorm', type=str2bool, nargs='?', const=True, default=False,
                         help="If true, use the pre-trained VGG19 model with batch normalization.")
+                        
 
 
 
@@ -570,13 +639,19 @@ if __name__ == '__main__':
     parser.add_argument('--loss_distance', type=str, default='euclidian',
                         help='Distance metric for the loss function')
     
-    parser.add_argument('--use_imagenet_normalization_for_swin', type=bool, default=True,
+    parser.add_argument('--use_random_crop', type=str2bool, nargs='?', const=True, default=True,
+                        help='Use random crop for the images (if False, use center crop)')
+    
+    parser.add_argument('--use_imagenet_normalization_for_swin', type=str2bool, nargs='?', const=True, default=True,
                         help='Use ImageNet normalization for Swin Transformer')
     
-    parser.add_argument('--use_imagenet_normalization_for_loss', type=bool, default=True,
+    parser.add_argument('--use_imagenet_normalization_for_loss', type=str2bool, nargs='?', const=True, default=True,
                         help='Use ImageNet normalization for the loss function')
     
     parser.add_argument('--save_every', type=int, default=100,
+                        help='Save the model every n iterations')
+    
+    parser.add_argument('--save_every_for_model', type=int, default=1000,
                         help='Save the model every n iterations')
     
     parser.add_argument('--max_iterations', type=int, default=15000,
@@ -601,14 +676,14 @@ if __name__ == '__main__':
     parser.add_argument('--style_decoder_num_heads', type=int, default=8,
                         help='Number of heads in the decoder.')
     
-    parser.add_argument('--style_encoder_window_size', type=list, default=[8, 8],
+    parser.add_argument('--style_encoder_window_size', type=str2listint, nargs='?', const=True, default=[7, 7],
                         help='Window size of the encoder.')
-    parser.add_argument('--style_decoder_window_size', type=list, default=[8, 8],
+    parser.add_argument('--style_decoder_window_size', type=str2listint, nargs='?', const=True, default=[7, 7],
                         help='Window size of the decoder.')
     
-    parser.add_argument('--style_encoder_shift_size', type=list, default=[4, 4],
+    parser.add_argument('--style_encoder_shift_size', type=str2listint, nargs='?', const=True, default=[4, 4],
                         help='Shift size of the encoder.')
-    parser.add_argument('--style_decoder_shift_size', type=list, default=[4, 4],
+    parser.add_argument('--style_decoder_shift_size', type=str2listint, nargs='?', const=True, default=[4, 4],
                         help='Shift size of the decoder.')
     
     parser.add_argument('--style_encoder_mlp_ratio', type=float, default=4.0,
@@ -626,14 +701,14 @@ if __name__ == '__main__':
     parser.add_argument('--style_decoder_attention_dropout', type=float, default=0.0,
                         help='Attention dropout rate of the decoder.')
     
-    parser.add_argument('--style_encoder_qkv_bias', type=bool, default=True,
+    parser.add_argument('--style_encoder_qkv_bias', type=str2bool, nargs='?', const=True, default=True,
                         help='Whether to use bias in the QKV projection of the encoder.')
-    parser.add_argument('--style_decoder_qkv_bias', type=bool, default=True,
+    parser.add_argument('--style_decoder_qkv_bias', type=str2bool, nargs='?', const=True, default=True,
                         help='Whether to use bias in the QKV projection of the decoder.')
     
-    parser.add_argument('--style_encoder_proj_bias', type=bool, default=True,
+    parser.add_argument('--style_encoder_proj_bias', type=str2bool, nargs='?', const=True, default=True,
                         help='Whether to use bias in the projection of the encoder.')
-    parser.add_argument('--style_decoder_proj_bias', type=bool, default=True,
+    parser.add_argument('--style_decoder_proj_bias', type=str2bool, nargs='?', const=True, default=True,
                         help='Whether to use bias in the projection of the decoder.')
     
     parser.add_argument('--style_encoder_stochastic_depth_prob', type=float, default=0.1,
@@ -651,31 +726,37 @@ if __name__ == '__main__':
     parser.add_argument('--style_decoder_MLP_activation_layer', type=callable, default=nn.GELU,
                         help='Activation layer of the MLP in the decoder.')
     
-    parser.add_argument('--style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation', type=bool, default=True,
+    parser.add_argument('--style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation', type=str2bool, nargs='?', const=True, default=True,
                         help='Whether to use processed Key in Scale and Shift calculation of the encoder.')
     
-    parser.add_argument('--style_decoder_use_instance_norm_with_affine', type=bool, default=False,
+    parser.add_argument('--style_decoder_use_instance_norm_with_affine', type=str2bool, nargs='?', const=True, default=False,
                         help='Whether to use instance normalization with affine in the decoder.')
     
-    parser.add_argument('--style_decoder_use_regular_MHA_instead_of_Swin_at_the_end', type=bool, default=False,
+    parser.add_argument('--style_decoder_use_regular_MHA_instead_of_Swin_at_the_end', type=str2bool, nargs='?', const=True, default=False,
                         help='Whether to use regular MHA instead of Swin at the end of the decoder.')
     
-    parser.add_argument('--style_decoder_use_Key_instance_norm_after_linear_transformation', type=bool, default=True,
+    parser.add_argument('--style_decoder_use_Key_instance_norm_after_linear_transformation', type=str2bool, nargs='?', const=True, default=True,
                         help='Whether to use instance normalization after linear transformation in the decoder.')
     
-    parser.add_argument('--style_decoder_exclude_MLP_after_Fcs_self_MHA', type=bool, default=False,
+    parser.add_argument('--style_decoder_exclude_MLP_after_Fcs_self_MHA', type=str2bool, nargs='?', const=True, default=False,
                         help='Whether to exclude MLP after Fcs self MHA in the decoder.')
     
     parser.add_argument('--decoder_initializer', type=str, default="kaiming_normal_",
                         help='Initializer for the decoder.')
+    
+    parser.add_argument('--style_transformer_load_pretrained_weights', type=str2bool, nargs='?', const=True, default=False,
+                        help='Load the pre-trained weights for the style transformer (from an original swin block).')
+    
+    parser.add_argument('--style_transformer_pretrained_weights_path', type=str, default="weights/model_basic_layer_1_module_list_shifted_window_block_state_dict.pth",
+                        help='Relative path to the pre-trained weights for the style transformer.')
 
 
 
     # wandb configuration.
-    parser.add_argument('--use_wandb', type=bool, default=False,
+    parser.add_argument('--use_wandb', type=str2bool, nargs='?', const=True, default=False,
                         help='use wandb for logging')
     
-    parser.add_argument('--online', type=bool, default=True,
+    parser.add_argument('--online', type=str2bool, nargs='?', const=True, default=True,
                         help='use wandb online')
     
     parser.add_argument('--exp_name', type=str, default='master',
@@ -685,7 +766,7 @@ if __name__ == '__main__':
 
 
     # Seed configuration.
-    parser.add_argument('--set_seed', type=bool, default=False,
+    parser.add_argument('--set_seed', type=str2bool, nargs='?', const=True, default=False,
                         help='set seed for reproducibility')
     
     parser.add_argument('--seed', type=int, default=42,
@@ -694,10 +775,13 @@ if __name__ == '__main__':
 
 
     # verbose
-    parser.add_argument('--verbose', type=bool, default=True,
+    parser.add_argument('--verbose', type=str2bool, nargs='?', const=True, default=True,
                         help='Print the model informations and loss values at each loss calculation.')
 
 
     config = parser.parse_args()
+
+
+
     train = Train(config)
     train.train()

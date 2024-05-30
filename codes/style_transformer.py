@@ -1225,17 +1225,15 @@ class StyleTransformer(nn.Module):
             decoder_exclude_MLP_after_Fcs_self_MHA = decoder_exclude_MLP_after_Fcs_self_MHA,
         )
 
+
     def forward(self,
                 Fc: Tensor,
                 Fs: Tensor,
                 k: int = 1):
         
 
-        
         Scale = Fs
         Shift = Fs
-
-
 
         
         for i in range(k):

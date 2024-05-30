@@ -15,6 +15,7 @@ sys.path.append(project_absolute_path)
 from codes.utils import download_swin_and_create_cutted_model
 from codes.style_transformer import StyleTransformer
 from codes.decoder import Decoder
+from codes.load_pretrained_weights_to_style_transformer import get_pretained_weight_loaded_style_transformer_state_dict
 
 
 class MasterStyleTransferModel(nn.Module):
@@ -51,7 +52,9 @@ class MasterStyleTransferModel(nn.Module):
         style_decoder_use_regular_MHA_instead_of_Swin_at_the_end: bool = False,
         style_decoder_use_Key_instance_norm_after_linear_transformation: bool = True,
         style_decoder_exclude_MLP_after_Fcs_self_MHA: bool = False,
-        decoder_initializer: str = "kaiming_normal_"
+        style_transformer_load_pretrained_weights: bool = False,
+        style_transformer_pretrained_weights_path: str = None,
+        decoder_initializer: str = "kaiming_normal_",
     ):
         super(MasterStyleTransferModel, self).__init__()
 
@@ -94,11 +97,102 @@ class MasterStyleTransferModel(nn.Module):
             decoder_use_instance_norm_with_affine = style_decoder_use_instance_norm_with_affine,
             decoder_use_regular_MHA_instead_of_Swin_at_the_end = style_decoder_use_regular_MHA_instead_of_Swin_at_the_end,
             decoder_use_Key_instance_norm_after_linear_transformation = style_decoder_use_Key_instance_norm_after_linear_transformation,
-            decoder_exclude_MLP_after_Fcs_self_MHA = style_decoder_exclude_MLP_after_Fcs_self_MHA
+            decoder_exclude_MLP_after_Fcs_self_MHA = style_decoder_exclude_MLP_after_Fcs_self_MHA,
         )
+        self.style_encoder_dim = style_encoder_dim
+        self.style_decoder_dim = style_decoder_dim
+        self.style_encoder_num_heads = style_encoder_num_heads
+        self.style_decoder_num_heads = style_decoder_num_heads
+        self.style_encoder_window_size = style_encoder_window_size
+        self.style_decoder_window_size = style_decoder_window_size
+        self.style_encoder_shift_size = style_encoder_shift_size
+        self.style_decoder_shift_size = style_decoder_shift_size
+        self.style_encoder_mlp_ratio = style_encoder_mlp_ratio
+        self.style_decoder_mlp_ratio = style_decoder_mlp_ratio
+        self.style_encoder_dropout = style_encoder_dropout
+        self.style_decoder_dropout = style_decoder_dropout
+        self.style_encoder_attention_dropout = style_encoder_attention_dropout
+        self.style_decoder_attention_dropout = style_decoder_attention_dropout
+        self.style_encoder_qkv_bias = style_encoder_qkv_bias
+        self.style_decoder_qkv_bias = style_decoder_qkv_bias
+        self.style_encoder_proj_bias = style_encoder_proj_bias
+        self.style_decoder_proj_bias = style_decoder_proj_bias
+        self.style_encoder_stochastic_depth_prob = style_encoder_stochastic_depth_prob
+        self.style_decoder_stochastic_depth_prob = style_decoder_stochastic_depth_prob
+        self.style_encoder_norm_layer = style_encoder_norm_layer
+        self.style_decoder_norm_layer = style_decoder_norm_layer
+        self.style_encoder_MLP_activation_layer = style_encoder_MLP_activation_layer
+        self.style_decoder_MLP_activation_layer = style_decoder_MLP_activation_layer
+        self.style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation = style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation
+        self.style_decoder_use_instance_norm_with_affine = style_decoder_use_instance_norm_with_affine
+        self.style_decoder_use_regular_MHA_instead_of_Swin_at_the_end = style_decoder_use_regular_MHA_instead_of_Swin_at_the_end
+        self.style_decoder_use_Key_instance_norm_after_linear_transformation = style_decoder_use_Key_instance_norm_after_linear_transformation
+        self.style_decoder_exclude_MLP_after_Fcs_self_MHA = style_decoder_exclude_MLP_after_Fcs_self_MHA
+        self.style_transformer_load_pretrained_weights = style_transformer_load_pretrained_weights
+        self.style_transformer_pretrained_weights_path = style_transformer_pretrained_weights_path
 
         self.decoder = Decoder(channel_dim=style_decoder_dim,
                                initializer=decoder_initializer)
+        
+        if style_transformer_load_pretrained_weights:
+            self.load_pretained_weights_to_style_transformer(pretrained_weights_path=style_transformer_pretrained_weights_path)
+        
+    
+
+    def load_pretained_weights_to_style_transformer(self, pretrained_weights_path: str):
+        if pretrained_weights_path is None:
+            raise ValueError("Please provide the path of the pretrained weights")
+        
+        if self.style_decoder_use_regular_MHA_instead_of_Swin_at_the_end:
+            raise ValueError("The pretrained weights are not compatible with the current model configuration. Please set the style_decoder_use_regular_MHA_instead_of_Swin_at_the_end to False")
+        
+        # get the models state_dict
+        state_dict = self.style_transformer.state_dict()
+
+        # deep copy the state_dict
+        state_dict_save = {key: value.clone() for key, value in state_dict.items()}
+
+        # load the pretrained weights
+        pretrained_state_dict = get_pretained_weight_loaded_style_transformer_state_dict(
+            state_dict = state_dict,
+            shifted_window_block_path = self.style_transformer_pretrained_weights_path,
+            encoder_dim = self.style_encoder_dim,
+            decoder_dim = self.style_decoder_dim,
+            encoder_mlp_ratio = self.style_decoder_mlp_ratio,
+            decoder_mlp_ratio = self.style_decoder_mlp_ratio,
+            encoder_window_size = self.style_encoder_window_size,
+            decoder_window_size = self.style_decoder_window_size,
+            encoder_qkv_bias = self.style_encoder_qkv_bias,
+            decoder_qkv_bias = self.style_decoder_qkv_bias,
+            encoder_proj_bias = self.style_encoder_proj_bias, 
+            decoder_proj_bias = self.style_decoder_proj_bias,
+            encoder_norm_layer = self.style_encoder_norm_layer, 
+            decoder_norm_layer = self.style_decoder_norm_layer,
+            decoder_use_regular_MHA_instead_of_Swin_at_the_end = self.style_decoder_use_regular_MHA_instead_of_Swin_at_the_end,
+            decoder_exclude_MLP_after_Fcs_self_MHA = self.style_decoder_exclude_MLP_after_Fcs_self_MHA,
+        )
+
+        # load the pretrained weights to the model
+        self.style_transformer.load_state_dict(pretrained_state_dict)
+
+        if_loaded_correctly = True
+
+        # check if the weights are loaded correctly (all the weight should be changed)
+        for key in state_dict.keys():
+            if "relative_position" in key: # ignore the relative position embeddings (dimensions are different)
+                continue
+
+            if torch.equal(state_dict_save[key], pretrained_state_dict[key]):
+                print(f"\n\n\nPRETRAINED WEIGHTS ARE NOT LOADED CORRECTLY FOR KEY: {key}\n\n\n")
+                if_loaded_correctly = False
+
+        if if_loaded_correctly:
+            print("\n\n\nPRETRAINED WEIGHTS ARE LOADED CORRECTLY!\n\n\n")
+        else:
+            print("\n\n\nPRETRAINED WEIGHTS ARE NOT LOADED CORRECTLY!\n\n\n")
+
+
+        
 
     def forward(self,
                 content_image: Tensor,
@@ -133,8 +227,8 @@ if __name__ == "__main__":
                                      style_decoder_dim=256,
                                      style_encoder_num_heads=8,
                                      style_decoder_num_heads=8,
-                                     style_encoder_window_size=[8, 8],
-                                     style_decoder_window_size=[8, 8],
+                                     style_encoder_window_size=[7, 7],
+                                     style_decoder_window_size=[7, 7],
                                      style_encoder_shift_size=[4, 4],
                                      style_decoder_shift_size=[4, 4],
                                      style_encoder_mlp_ratio=4.0,
@@ -155,9 +249,11 @@ if __name__ == "__main__":
                                      style_decoder_MLP_activation_layer=nn.GELU,
                                      style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation=True,
                                      style_decoder_use_instance_norm_with_affine=False,
-                                     style_decoder_use_regular_MHA_instead_of_Swin_at_the_end=True,
+                                     style_decoder_use_regular_MHA_instead_of_Swin_at_the_end=False,
                                      style_decoder_use_Key_instance_norm_after_linear_transformation=True,
-                                     decoder_initializer="kaiming_normal_"
+                                     style_transformer_load_pretrained_weights=True,
+                                     style_transformer_pretrained_weights_path=os.path.join(project_absolute_path, "weights", "model_basic_layer_1_module_list_shifted_window_block_state_dict.pth"),
+                                     decoder_initializer="default"
                                      )
     
     # set the model to evaluation mode
@@ -176,17 +272,31 @@ if __name__ == "__main__":
     content_image = torch.randn(1, 3, 256, 256)
     style_image = torch.randn(1, 3, 256, 256)
 
+    # normalize the input
+    content_image = content_image / 255.0
+    style_image = style_image / 255.0
+
+    # normalize with imagenet statistics
+    content_image[:, 0] = (content_image[:, 0] - 0.485) / 0.229
+    content_image[:, 1] = (content_image[:, 1] - 0.456) / 0.224
+    content_image[:, 2] = (content_image[:, 2] - 0.406) / 0.225
+
     # get the output
 
     output = model(content_image, style_image, transformer_layer_count=1)
 
 
+    # denormalize the output
+    output[:, 0] = (output[:, 0] * 0.229) + 0.485
+    output[:, 1] = (output[:, 1] * 0.224) + 0.456
+    output[:, 2] = (output[:, 2] * 0.225) + 0.406
+
+
     print(f"Input shape: {content_image.shape}")
     print(f"Output shape: {output.shape}")
 
-
-    print(output)
     
-        
+    print(output)
+    print(f"Output shape: {output.shape}")
 
                  
