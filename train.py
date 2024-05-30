@@ -470,38 +470,45 @@ class Train:
 
 
                 
-                if self.use_imagenet_normalization_for_loss: # if needed, normalize the images
-                    if self.use_imagenet_normalization_for_swin: # only normalize the decoder output
-                        # Compute inner loss
-                        total_loss, content_loss, style_loss = self.loss_function(content_images,
-                                                                                  style_image_batch,
-                                                                                  self.imagenet_normalization(decoded_output),
-                                                                                  output_content_and_style_loss=True)
-                    else: # normalize everything
-                        # Compute inner loss
-                        total_loss, content_loss, style_loss = self.loss_function(self.imagenet_normalization(content_images),
-                                                                                  self.imagenet_normalization(style_image_batch),
-                                                                                  self.imagenet_normalization(decoded_output),
-                                                                                  output_content_and_style_loss=True)
+            if self.use_imagenet_normalization_for_loss: # if needed, normalize the images
+                if self.use_imagenet_normalization_for_swin: # only normalize the decoder output
+                    # Compute inner loss
+                    total_loss, content_loss, style_loss = self.loss_function(content_images,
+                                                                                style_image_batch,
+                                                                                self.imagenet_normalization(decoded_output),
+                                                                                output_content_and_style_loss=True)
+                else: # normalize everything
+                    # Compute inner loss
+                    total_loss, content_loss, style_loss = self.loss_function(self.imagenet_normalization(content_images),
+                                                                                self.imagenet_normalization(style_image_batch),
+                                                                                self.imagenet_normalization(decoded_output),
+                                                                                output_content_and_style_loss=True)
+            else:
+                if self.use_imagenet_normalization_for_swin:
+                    content_images = content_images.to("cpu")
+                    style_image_batch = style_image_batch.to("cpu")
+
+                    content_images_non_normalized = content_images_non_normalized.to(self.device)
+                    style_image_batch_non_normalized = style_image_batch_non_normalized.to(self.device)
+
+
+
+                    # Compute inner loss
+                    total_loss, content_loss, style_loss = self.loss_function(content_images_non_normalized,
+                                                                              style_image_batch_non_normalized,
+                                                                              decoded_output,
+                                                                              output_content_and_style_loss=True)
+                    
+                    content_images_non_normalized = content_images_non_normalized.to("cpu")
+                    style_image_batch_non_normalized = style_image_batch_non_normalized.to("cpu")
                 else:
-                    if self.use_imagenet_normalization_for_swin:
-                        content_images.to("cpu")
-                        style_image_batch.to("cpu")
-
-                        content_images_non_normalized.to(self.device)
-                        style_image_batch_non_normalized.to(self.device)
-
-                        # Compute inner loss
-                        total_loss, content_loss, style_loss = self.loss_function(content_images_non_normalized,
-                                                                                  style_image_batch_non_normalized,
-                                                                                  decoded_output,
-                                                                                  output_content_and_style_loss=True)
-                    else:
-                        # Compute inner loss
-                        total_loss, content_loss, style_loss = self.loss_function(content_images,
-                                                                                  style_image_batch,
-                                                                                  decoded_output,
-                                                                                  output_content_and_style_loss=True)
+                    # Compute inner loss
+                    total_loss, content_loss, style_loss = self.loss_function(content_images,
+                                                                                style_image_batch,
+                                                                                decoded_output,
+                                                                                output_content_and_style_loss=True)
+                    
+                    
              
                 # Print the loss values if verbose is True
                 if self.verbose:
@@ -654,7 +661,10 @@ if __name__ == '__main__':
     parser.add_argument('--lambda_style', type=float, default=10.0,
                         help='Weighting term for style loss (lambda)')
     
-    parser.add_argument('--loss_distance', type=str, default='euclidian',
+    parser.add_argument('--loss_distance_content', type=str, default='euclidian',
+                        help='Distance metric for the loss function')
+    
+    parser.add_argument('--loss_distance_style', type=str, default='euclidian',
                         help='Distance metric for the loss function')
     
     parser.add_argument('--use_random_crop', type=str2bool, nargs='?', const=True, default=True,
