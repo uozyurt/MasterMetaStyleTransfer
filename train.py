@@ -67,7 +67,8 @@ class Train:
         self.num_inner_updates = config.num_inner_updates
         self.max_layers = config.max_layers
         self.lambda_style = config.lambda_style
-        self.loss_distance = config.loss_distance
+        self.loss_distance_content = config.loss_distance_content
+        self.loss_distance_style = config.loss_distance_style
         self.use_random_crop = config.use_random_crop
         self.use_imagenet_normalization_for_swin = config.use_imagenet_normalization_for_swin
         self.use_imagenet_normalization_for_loss = config.use_imagenet_normalization_for_loss
@@ -155,47 +156,51 @@ class Train:
 
 
         # Initialize the master style transfer model
-        self.master_style_transformer = MasterStyleTransferModel(
-            project_absolute_path=self.project_root,
-            swin_model_relative_path=self.swin_model_relative_path,
-            swin_variant=self.swin_variant,
-            style_encoder_dim=self.style_encoder_dim,
-            style_decoder_dim=self.style_decoder_dim,
-            style_encoder_num_heads=self.style_encoder_num_heads,
-            style_decoder_num_heads=self.style_decoder_num_heads,
-            style_encoder_window_size=self.style_encoder_window_size,
-            style_decoder_window_size=self.style_decoder_window_size,
-            style_encoder_shift_size=self.style_encoder_shift_size,
-            style_decoder_shift_size=self.style_decoder_shift_size,
-            style_encoder_mlp_ratio=self.style_encoder_mlp_ratio,
-            style_decoder_mlp_ratio=self.style_decoder_mlp_ratio,
-            style_encoder_dropout=self.style_encoder_dropout,
-            style_decoder_dropout=self.style_decoder_dropout,
-            style_encoder_attention_dropout=self.style_encoder_attention_dropout,
-            style_decoder_attention_dropout=self.style_decoder_attention_dropout,
-            style_encoder_qkv_bias=self.style_encoder_qkv_bias,
-            style_decoder_qkv_bias=self.style_decoder_qkv_bias,
-            style_encoder_proj_bias=self.style_encoder_proj_bias,
-            style_decoder_proj_bias=self.style_decoder_proj_bias,
-            style_encoder_stochastic_depth_prob=self.style_encoder_stochastic_depth_prob,
-            style_decoder_stochastic_depth_prob=self.style_decoder_stochastic_depth_prob,
-            style_encoder_norm_layer=self.style_encoder_norm_layer,
-            style_decoder_norm_layer=self.style_decoder_norm_layer,
-            style_encoder_MLP_activation_layer=self.style_encoder_MLP_activation_layer,
-            style_decoder_MLP_activation_layer=self.style_decoder_MLP_activation_layer,
-            style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation=self.style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation,
-            style_decoder_use_instance_norm_with_affine=self.style_decoder_use_instance_norm_with_affine,
-            style_decoder_use_regular_MHA_instead_of_Swin_at_the_end=self.style_decoder_use_regular_MHA_instead_of_Swin_at_the_end,
-            style_decoder_use_Key_instance_norm_after_linear_transformation=self.style_decoder_use_Key_instance_norm_after_linear_transformation,
-            style_decoder_exclude_MLP_after_Fcs_self_MHA=self.style_decoder_exclude_MLP_after_Fcs_self_MHA,
-            style_transformer_load_pretrained_weights=self.style_transformer_load_pretrained_weights,
-            style_transformer_pretrained_weights_path=self.style_transformer_pretrained_weights_path,
-            decoder_initializer=self.decoder_initializer
-        )
+        with torch.no_grad():
+            self.master_style_transformer = MasterStyleTransferModel(
+                project_absolute_path=self.project_root,
+                swin_model_relative_path=self.swin_model_relative_path,
+                swin_variant=self.swin_variant,
+                style_encoder_dim=self.style_encoder_dim,
+                style_decoder_dim=self.style_decoder_dim,
+                style_encoder_num_heads=self.style_encoder_num_heads,
+                style_decoder_num_heads=self.style_decoder_num_heads,
+                style_encoder_window_size=self.style_encoder_window_size,
+                style_decoder_window_size=self.style_decoder_window_size,
+                style_encoder_shift_size=self.style_encoder_shift_size,
+                style_decoder_shift_size=self.style_decoder_shift_size,
+                style_encoder_mlp_ratio=self.style_encoder_mlp_ratio,
+                style_decoder_mlp_ratio=self.style_decoder_mlp_ratio,
+                style_encoder_dropout=self.style_encoder_dropout,
+                style_decoder_dropout=self.style_decoder_dropout,
+                style_encoder_attention_dropout=self.style_encoder_attention_dropout,
+                style_decoder_attention_dropout=self.style_decoder_attention_dropout,
+                style_encoder_qkv_bias=self.style_encoder_qkv_bias,
+                style_decoder_qkv_bias=self.style_decoder_qkv_bias,
+                style_encoder_proj_bias=self.style_encoder_proj_bias,
+                style_decoder_proj_bias=self.style_decoder_proj_bias,
+                style_encoder_stochastic_depth_prob=self.style_encoder_stochastic_depth_prob,
+                style_decoder_stochastic_depth_prob=self.style_decoder_stochastic_depth_prob,
+                style_encoder_norm_layer=self.style_encoder_norm_layer,
+                style_decoder_norm_layer=self.style_decoder_norm_layer,
+                style_encoder_MLP_activation_layer=self.style_encoder_MLP_activation_layer,
+                style_decoder_MLP_activation_layer=self.style_decoder_MLP_activation_layer,
+                style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation=self.style_encoder_if_use_processed_Key_in_Scale_and_Shift_calculation,
+                style_decoder_use_instance_norm_with_affine=self.style_decoder_use_instance_norm_with_affine,
+                style_decoder_use_regular_MHA_instead_of_Swin_at_the_end=self.style_decoder_use_regular_MHA_instead_of_Swin_at_the_end,
+                style_decoder_use_Key_instance_norm_after_linear_transformation=self.style_decoder_use_Key_instance_norm_after_linear_transformation,
+                style_decoder_exclude_MLP_after_Fcs_self_MHA=self.style_decoder_exclude_MLP_after_Fcs_self_MHA,
+                style_transformer_load_pretrained_weights=self.style_transformer_load_pretrained_weights,
+                style_transformer_pretrained_weights_path=self.style_transformer_pretrained_weights_path,
+                decoder_initializer=self.decoder_initializer
+            )
 
 
-        self.master_style_transformer.apply(self._init_weights_style_transformer)
+        if(not self.style_transformer_load_pretrained_weights):
+            print("\nInitializing the weights of the style transformer with truncated normal initialization!\n")
+            self.master_style_transformer.apply(self._init_weights_style_transformer)
 
+        self.master_style_transformer.train()
 
 
 
@@ -216,64 +221,37 @@ class Train:
                 torch.nn.init.constant_(param, 0)
 
 
-        # set the devices to training mode
-        self.master_style_transformer.style_transformer.train()
-        self.master_style_transformer.decoder.train()
-        if not self.freeze_encoder:
-            self.master_style_transformer.swin_encoder.train()
-        else:
-            self.master_style_transformer.swin_encoder.eval()
 
-            # Freeze the parameters of the encoder
+        if self.freeze_encoder:
             for param in self.master_style_transformer.swin_encoder.parameters():
                 param.requires_grad = False
 
+
+
         # declare the image transform
-        if self.use_imagenet_normalization_for_swin:
-            if self.use_random_crop:
-                if self.verbose:
-                    print("Using random crop for the images!")
-                self.transform = transforms.Compose([
-                    transforms.ToPILImage(), # -> PIL image
-                    transforms.Resize((512, 512)), # -> resize to 512x512
-                    transforms.RandomCrop((256,256)) , # random crop to 256x256
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # normalize with mean and std
-                ])
-            else:
-                if self.verbose:
-                    print("Using center crop for the images!")
-                self.transform = transforms.Compose([
-                    transforms.ToPILImage(), # -> PIL image
-                    transforms.Resize((512, 512)), # -> resize to 512x512
-                    transforms.CenterCrop((256,256)) , # center crop to 256x256
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # normalize with mean and std
-                ])
+        if self.use_random_crop:
+            if self.verbose:
+                print("Using random crop for the images!")
+            self.transform = transforms.Compose([
+                transforms.ToPILImage(), # -> PIL image
+                transforms.Resize((512, 512)), # -> resize to 512x512
+                transforms.RandomCrop((256,256)) , # random crop to 256x256
+                transforms.ToTensor()
+            ])
         else:
-            if self.use_random_crop:
-                if self.verbose:
-                    print("Using random crop for the images!")
-                self.transform = transforms.Compose([
-                    transforms.ToPILImage(), # -> PIL image
-                    transforms.Resize((512, 512)), # -> resize to 512x512
-                    transforms.RandomCrop((256,256)) , # random crop to 256x256
-                    transforms.ToTensor()
-                ])
-            else:
-                if self.verbose:
-                    print("Using center crop for the images!")
-                self.transform = transforms.Compose([
-                    transforms.ToPILImage(), # -> PIL image
-                    transforms.Resize((512, 512)), # -> resize to 512x512
-                    transforms.CenterCrop((256,256)) , # center crop to 256x256
-                    transforms.ToTensor()
-                ])
+            if self.verbose:
+                print("Using center crop for the images!")
+            self.transform = transforms.Compose([
+                transforms.ToPILImage(), # -> PIL image
+                transforms.Resize((512, 512)), # -> resize to 512x512
+                transforms.CenterCrop((256,256)) , # center crop to 256x256
+                transforms.ToTensor()
+            ])
 
         
         # declare normalization for the loss function
-        if self.use_imagenet_normalization_for_loss:
-            self.imagenet_normalization_before_loss = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        if self.use_imagenet_normalization_for_loss or self.use_imagenet_normalization_for_swin:
+            self.imagenet_normalization = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
 
         # Initialize loss function
@@ -281,7 +259,8 @@ class Train:
                                          feature_extractor_model_relative_path=self.loss_model_path,
                                          use_vgg19_with_batchnorm=self.use_vgg19_with_batchnorm,
                                          default_lambda_value=self.lambda_style,
-                                         distance=self.loss_distance).to(self.device)
+                                         distance_content=self.loss_distance_content,
+                                         distance_style=self.loss_distance_style).to(self.device)
 
 
 
@@ -352,6 +331,17 @@ class Train:
 
 
             
+        if self.set_seed:
+            np.random.seed(self.seed)
+            random.seed(self.seed)
+            torch.manual_seed(self.seed)
+            torch.cuda.manual_seed_all(self.seed)
+
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+
+            os.environ["PYTHONHASHSEED"] = str(self.seed)
+
 
         # create dataset objects
         coco_train_dataset_object = coco_train_dataset(
@@ -420,13 +410,22 @@ class Train:
                 print(f"Iteration: {iteration:>10}/{self.max_iterations}")
 
             # Sample a style image
-            style_image = (next(wikiart_iterator)).to(self.device)
+            style_image = (next(wikiart_iterator))
+
             if (self.batch_size_content % self.batch_size_style) == 0:
                 style_image_batch = style_image.repeat((self.batch_size_content // self.batch_size_style), 1, 1, 1)
             else:
                 style_image_batch = torch.cat((style_image.repeat((self.batch_size_content // self.batch_size_style), 1, 1, 1),
                                               style_image[:self.batch_size_content % self.batch_size_style]),
                                               dim=0)
+                
+            if (self.use_imagenet_normalization_for_swin and (not self.use_imagenet_normalization_for_loss)):
+                style_image_batch_non_normalized = style_image_batch.clone()
+                style_image_batch = self.imagenet_normalization(style_image_batch)
+            elif (self.use_imagenet_normalization_for_swin):
+                style_image_batch = self.imagenet_normalization(style_image_batch)
+                
+            style_image_batch = style_image_batch.to(self.device)
                 
 
             # load the transformer and decoder from main weights
@@ -441,6 +440,13 @@ class Train:
             for inner_loop_index in range(1, self.num_inner_updates+1):
                 # Sample a batch of content images
                 content_images = next(coco_iterator)
+
+                if (self.use_imagenet_normalization_for_swin and (not self.use_imagenet_normalization_for_loss)):
+                    content_images_non_normalized = content_images.clone()
+                    content_images = self.imagenet_normalization(content_images)
+                elif (self.use_imagenet_normalization_for_swin):
+                    content_images = self.imagenet_normalization(content_images)
+
                 content_images = content_images.to(self.device)
                 # Randomly select the number of layers to use
                 num_layers = random.randint(1, self.max_layers)
@@ -465,25 +471,37 @@ class Train:
 
                 
                 if self.use_imagenet_normalization_for_loss: # if needed, normalize the images
-
                     if self.use_imagenet_normalization_for_swin: # only normalize the decoder output
                         # Compute inner loss
                         total_loss, content_loss, style_loss = self.loss_function(content_images,
                                                                                   style_image_batch,
-                                                                                  self.imagenet_normalization_before_loss(decoded_output),
+                                                                                  self.imagenet_normalization(decoded_output),
                                                                                   output_content_and_style_loss=True)
                     else: # normalize everything
                         # Compute inner loss
-                        total_loss, content_loss, style_loss = self.loss_function(self.imagenet_normalization_before_loss(content_images),
-                                                                                  self.imagenet_normalization_before_loss(style_image_batch),
-                                                                                  self.imagenet_normalization_before_loss(decoded_output),
+                        total_loss, content_loss, style_loss = self.loss_function(self.imagenet_normalization(content_images),
+                                                                                  self.imagenet_normalization(style_image_batch),
+                                                                                  self.imagenet_normalization(decoded_output),
                                                                                   output_content_and_style_loss=True)
                 else:
-                    # Compute inner loss
-                    total_loss, content_loss, style_loss = self.loss_function(content_images,
-                                                                              style_image_batch,
-                                                                              decoded_output,
-                                                                              output_content_and_style_loss=True)
+                    if self.use_imagenet_normalization_for_swin:
+                        content_images.to("cpu")
+                        style_image_batch.to("cpu")
+
+                        content_images_non_normalized.to(self.device)
+                        style_image_batch_non_normalized.to(self.device)
+
+                        # Compute inner loss
+                        total_loss, content_loss, style_loss = self.loss_function(content_images_non_normalized,
+                                                                                  style_image_batch_non_normalized,
+                                                                                  decoded_output,
+                                                                                  output_content_and_style_loss=True)
+                    else:
+                        # Compute inner loss
+                        total_loss, content_loss, style_loss = self.loss_function(content_images,
+                                                                                  style_image_batch,
+                                                                                  decoded_output,
+                                                                                  output_content_and_style_loss=True)
              
                 # Print the loss values if verbose is True
                 if self.verbose:
