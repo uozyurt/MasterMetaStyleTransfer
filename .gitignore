@@ -6,3 +6,5 @@ datasets/
 __pycache__/
 exps/
 wandb/
+
+test/output_images/
