@@ -63,6 +63,10 @@ class Train:
         # Hyperparameters
         self.freeze_encoder = config.freeze_encoder
         self.inner_lr = config.inner_lr
+        self.warmup_epochs = config.warmup_epochs
+        self.decay_lr_until = config.decay_lr_until
+        self.decay_lr_rate = config.decay_lr_rate
+        self.decay_every = config.decay_every
         self.max_layers = config.max_layers
         self.lambda_style = config.lambda_style
         self.loss_distance_content = config.loss_distance_content
@@ -293,6 +297,47 @@ class Train:
             
             for param in self.master_style_transformer.decoder.parameters():
                 param.requires_grad = False
+
+            self.lr_schedule_on = False
+        else:
+            if (self.warmup_epochs or self.decay_lr_until):
+                if (self.warmup_epochs and self.decay_lr_until):
+                    self.lr_schedule_on = True
+                else:
+                    print("Please provide both warmup epochs and decay learning rate until epoch!")
+                    self.lr_schedule_on = False
+            else:
+                self.lr_schedule_on = False
+            
+        if self.verbose:
+            if self.lr_schedule_on:
+                print(f"Using learning rate scheduling with warmup epochs: {self.warmup_epochs} and decay learning rate until lr value: {self.decay_lr_until}!")
+            else:
+                print("Not using learning rate scheduling!")
+
+
+
+
+    def schedule_lr(self, optimizer, iteration):
+        """Decay the learning rate."""
+        if iteration <= self.warmup_epochs:
+            # increase linearly, starting from 1/100 of the initial learning rate (iteration starts from 1)
+            lr = self.inner_lr * (((iteration) / (self.warmup_epochs))*0.99 + 0.01)
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
+                return lr
+        else:
+            # decay exponentially every decay_every iterations
+            if iteration % self.decay_every == 0:
+                # calculate the new learning rate
+                lr = self.inner_lr * (self.decay_lr_rate ** (iteration // self.decay_every))
+                lr = max(lr, self.decay_lr_until)
+
+                # set the new learning rate
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = lr
+
+                return lr
 
 
 
@@ -525,6 +570,9 @@ class Train:
             optimizer.step()
 
 
+            # Decay the learning rate
+            if self.lr_schedule_on:
+                self.schedule_lr(optimizer, iteration)
 
 
             if iteration % self.save_every == 0:
@@ -533,6 +581,7 @@ class Train:
                     wandb.log({'total_loss': total_loss,
                                'content_loss': content_loss,
                                'style_loss': style_loss,
+                               'learning_rate': optimizer.param_groups[0]['lr'],
                                'content_image': [wandb.Image(content_images[0])],
                                'style_image': [wandb.Image(style_image)],
                                'stylized_image': [wandb.Image(decoded_output[0])]})
@@ -541,7 +590,8 @@ class Train:
                     # Log Iteration and Losses
                     wandb.log({'total_loss': total_loss,
                                 'content_loss': content_loss,
-                                'style_loss': style_loss})
+                                'style_loss': style_loss,
+                                'learning_rate': optimizer.param_groups[0]['lr']})
                     
             if iteration % self.save_every_for_model == 0:
                 # Save model periodically
@@ -635,6 +685,18 @@ if __name__ == '__main__':
     
     parser.add_argument('--inner_lr', type=float, default=0.0001,
                         help='Inner learning rate (delta)')
+    
+    parser.add_argument('--warmup_epochs', type=int, default=0,
+                        help='Number of warmup epochs')
+    
+    parser.add_argument('--decay_lr_until', type=float, default=0.,
+                        help='Decay learning rate until the given epoch')
+    
+    parser.add_argument('--decay_lr_rate', type=float, default=0.1,
+                        help='Decay learning rate by the given rate')
+    
+    parser.add_argument('--decay_every', type=int, default=1000,
+                        help='Decay learning rate every n iterations')
     
     parser.add_argument('--max_layers', type=int, default=4,
                         help='Maximal number of stacked layers (T)')
