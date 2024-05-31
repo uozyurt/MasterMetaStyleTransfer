@@ -55,6 +55,8 @@ class MasterStyleTransferModel(nn.Module):
         style_transformer_load_pretrained_weights: bool = False,
         style_transformer_pretrained_weights_path: str = None,
         decoder_initializer: str = "kaiming_normal_",
+        direct_pretrained_style_transformer_path: str = '',
+        direct_pretrained_decoder_path: str = '',
     ):
         super(MasterStyleTransferModel, self).__init__()
 
@@ -130,12 +132,25 @@ class MasterStyleTransferModel(nn.Module):
         self.style_decoder_exclude_MLP_after_Fcs_self_MHA = style_decoder_exclude_MLP_after_Fcs_self_MHA
         self.style_transformer_load_pretrained_weights = style_transformer_load_pretrained_weights
         self.style_transformer_pretrained_weights_path = style_transformer_pretrained_weights_path
+        self.decoder_initializer = decoder_initializer
+        self.direct_pretrained_style_transformer_path = direct_pretrained_style_transformer_path
+        self.direct_pretrained_decoder_path = direct_pretrained_decoder_path
 
         self.decoder = Decoder(channel_dim=style_decoder_dim,
                                initializer=decoder_initializer)
         
-        if style_transformer_load_pretrained_weights:
+
+
+        if style_transformer_load_pretrained_weights and (not direct_pretrained_style_transformer_path):
             self.load_pretained_weights_to_style_transformer(pretrained_weights_path=style_transformer_pretrained_weights_path)
+
+        if direct_pretrained_style_transformer_path != '':
+            print("Loading the pretrained weights to the style transformer")
+            self.style_transformer.load_state_dict(torch.load(direct_pretrained_style_transformer_path))
+        
+        if direct_pretrained_decoder_path != '':
+            print("Loading the pretrained weights to the decoder")
+            self.decoder.load_state_dict(torch.load(direct_pretrained_decoder_path))
         
     
 
