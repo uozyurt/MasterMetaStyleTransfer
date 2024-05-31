@@ -75,8 +75,8 @@ class Train:
         self.max_iterations = config.max_iterations
 
         self.fast_adaptation_stage_on = config.fast_adaptation_stage_on
-        self.fast_adaptation_pretrained_style_transformer_path = config.fast_adaptation_pretrained_style_transformer_path
-        self.fast_adaptation_pretrained_decoder_path = config.fast_adaptation_pretrained_decoder_path
+        self.pretrained_style_transformer_path = config.pretrained_style_transformer_path
+        self.pretrained_decoder_path = config.pretrained_decoder_path
 
 
 
@@ -160,9 +160,9 @@ class Train:
         # check if the fast adaptation stage is on
         if self.fast_adaptation_stage_on:
             # check if paths are given
-            if(self.fast_adaptation_pretrained_style_transformer_path == ''):
+            if(self.pretrained_style_transformer_path == ''):
                 raise ValueError("Pre-trained style transformer path is not given!")
-            if(self.fast_adaptation_pretrained_decoder_path == ''):
+            if(self.pretrained_decoder_path == ''):
                 raise ValueError("Pre-trained decoder path is not given!")
 
 
@@ -204,8 +204,8 @@ class Train:
                 style_transformer_load_pretrained_weights=self.style_transformer_load_pretrained_weights,
                 style_transformer_pretrained_weights_path=self.style_transformer_pretrained_weights_path,
                 decoder_initializer=self.decoder_initializer,
-                direct_pretrained_style_transformer_path=self.fast_adaptation_pretrained_style_transformer_path,
-                direct_pretrained_decoder_path=self.fast_adaptation_pretrained_decoder_path
+                direct_pretrained_style_transformer_path=self.pretrained_style_transformer_path,
+                direct_pretrained_decoder_path=self.pretrained_decoder_path
             )
 
 
@@ -670,10 +670,10 @@ if __name__ == '__main__':
     parser.add_argument('--fast_adaptation_stage_on', type=str2bool, nargs='?', const=True, default=False,
                         help='Whether to use fast adaptation stage')
     
-    parser.add_argument('--fast_adaptation_pretrained_style_transformer_path', type=str, default='',
+    parser.add_argument('--pretrained_style_transformer_path', type=str, default='',
                         help='Path to the pre-trained style transformer for fast adaptation stage')
     
-    parser.add_argument('--fast_adaptation_pretrained_decoder_path', type=str, default='',
+    parser.add_argument('--pretrained_decoder_path', type=str, default='',
                         help='Path to the pre-trained decoder for fast adaptation stage')
 
 
