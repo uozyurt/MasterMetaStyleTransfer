@@ -213,15 +213,6 @@ class Train:
 
 
 
-        # initialize the style transformer with truncated normal initialization
-        for name, param in self.master_style_transformer.style_transformer.named_parameters():
-            if 'weight' in name:
-                torch.nn.init.trunc_normal_(param, std=0.02)
-            elif 'bias' in name:
-                torch.nn.init.constant_(param, 0)
-
-
-
         if self.freeze_encoder:
             for param in self.master_style_transformer.swin_encoder.parameters():
                 param.requires_grad = False
@@ -508,7 +499,7 @@ class Train:
                                                                                 decoded_output,
                                                                                 output_content_and_style_loss=True)
                     
-                    
+
              
                 # Print the loss values if verbose is True
                 if self.verbose:
