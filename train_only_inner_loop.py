@@ -342,7 +342,7 @@ class Train:
         # Initialize wandb             
         if self.use_wandb:
             mode = 'online' if self.online else 'offline'
-            kwargs = {'name': self.exp_name, 'project': 'master_v2', 'config': config,
+            kwargs = {'name': self.exp_name, 'project': 'master_v2',
                     'settings': wandb.Settings(_disable_stats=True), 'reinit': True, 'mode': mode, 'save_code': True}
             wandb.init(**kwargs)
         else:
