@@ -1,6 +1,10 @@
-weights/
+*.pth
+*.pt
+!model_basic_layer_1_module_list_shifted_window_block_state_dict.pth
 datasets/
 *.log
 __pycache__/
 exps/
 wandb/
+
+test/output_images/
