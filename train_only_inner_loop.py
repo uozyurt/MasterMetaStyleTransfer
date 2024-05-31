@@ -74,6 +74,10 @@ class Train:
         self.save_every_for_model = config.save_every_for_model
         self.max_iterations = config.max_iterations
 
+        self.fast_adaptation_stage_on = config.fast_adaptation_stage_on
+        self.fast_adaptation_pretrained_style_transformer_path = config.fast_adaptation_pretrained_style_transformer_path
+        self.fast_adaptation_pretrained_decoder_path = config.fast_adaptation_pretrained_decoder_path
+
 
 
 
@@ -152,6 +156,15 @@ class Train:
         with open(os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_config.yaml"), 'w') as file:
             yaml.dump(vars(self), file)
 
+        
+        # check if the fast adaptation stage is on
+        if self.fast_adaptation_stage_on:
+            # check if paths are given
+            if(self.fast_adaptation_pretrained_style_transformer_path == ''):
+                raise ValueError("Pre-trained style transformer path is not given!")
+            if(self.fast_adaptation_pretrained_decoder_path == ''):
+                raise ValueError("Pre-trained decoder path is not given!")
+
 
         # Initialize the master style transfer model
         with torch.no_grad():
@@ -190,11 +203,13 @@ class Train:
                 style_decoder_exclude_MLP_after_Fcs_self_MHA=self.style_decoder_exclude_MLP_after_Fcs_self_MHA,
                 style_transformer_load_pretrained_weights=self.style_transformer_load_pretrained_weights,
                 style_transformer_pretrained_weights_path=self.style_transformer_pretrained_weights_path,
-                decoder_initializer=self.decoder_initializer
+                decoder_initializer=self.decoder_initializer,
+                direct_pretrained_style_transformer_path=self.fast_adaptation_pretrained_style_transformer_path,
+                direct_pretrained_decoder_path=self.fast_adaptation_pretrained_decoder_path
             )
 
 
-        if(not self.style_transformer_load_pretrained_weights):
+        if((not self.style_transformer_load_pretrained_weights) and (not self.fast_adaptation_stage_on)):
             print("\nInitializing the weights of the style transformer with truncated normal initialization!\n")
             self.master_style_transformer.apply(self._init_weights_style_transformer)
 
@@ -211,13 +226,6 @@ class Train:
             self.print_network(self.master_style_transformer, 'StyleTransformer')
 
 
-
-        # initialize the style transformer with truncated normal initialization
-        for name, param in self.master_style_transformer.style_transformer.named_parameters():
-            if 'weight' in name:
-                torch.nn.init.trunc_normal_(param, std=0.02)
-            elif 'bias' in name:
-                torch.nn.init.constant_(param, 0)
 
 
         if self.freeze_encoder:
@@ -245,6 +253,16 @@ class Train:
                 transforms.CenterCrop((256,256)) , # center crop to 256x256
                 transforms.ToTensor()
             ])
+        
+        if self.fast_adaptation_stage_on:
+            self.transform_style_for_fast_adaptation = transforms.Compose([
+                transforms.ToPILImage(), # -> PIL image
+                transforms.Resize((512, 512)), # -> resize to 512x512
+                transforms.CenterCrop((256,256)) , # center crop to 256x256
+                transforms.ToTensor()
+            ])
+
+
 
 
         # declare normalization for the loss function
@@ -260,6 +278,21 @@ class Train:
                                          default_lambda_value=self.lambda_style,
                                          distance_content=self.loss_distance_content,
                                          distance_style=self.loss_distance_style).to(self.device)
+
+
+        if self.fast_adaptation_stage_on:
+            # freeze everything except the style encoder
+            for param in self.master_style_transformer.swin_encoder.parameters():
+                param.requires_grad = False
+
+            for param in self.master_style_transformer.style_transformer.decoder.parameters():
+                param.requires_grad = False
+            
+            for param in self.master_style_transformer.style_transformer.encoder.parameters():
+                param.requires_grad = True
+            
+            for param in self.master_style_transformer.decoder():
+                param.requires_grad = False
 
 
 
@@ -333,11 +366,20 @@ class Train:
             transform=self.transform,                        
             coco_dataset_relative_path=self.coco_dataset_path
         )
-        wikiart_dataset_object = wikiart_dataset(
-            project_absolute_path=self.project_root,
-            transform=self.transform,
-            wikiart_dataset_relative_path=self.wikiart_dataset_path
-        )
+
+        if not self.fast_adaptation_stage_on:
+            wikiart_dataset_object = wikiart_dataset(
+                project_absolute_path=self.project_root,
+                transform=self.transform,
+                wikiart_dataset_relative_path=self.wikiart_dataset_path
+            )
+        else:
+            wikiart_dataset_object = wikiart_dataset(
+                project_absolute_path=self.project_root,
+                transform=self.transform_style_for_fast_adaptation,
+                wikiart_dataset_relative_path=self.wikiart_dataset_path
+            )
+
 
         # Initialize Dataloaders
         if not self.use_infinite_sampler:
@@ -624,6 +666,15 @@ if __name__ == '__main__':
     
     parser.add_argument('--max_iterations', type=int, default=15000,
                         help='Number of iterations to train the model.')
+    
+    parser.add_argument('--fast_adaptation_stage_on', type=str2bool, nargs='?', const=True, default=False,
+                        help='Whether to use fast adaptation stage')
+    
+    parser.add_argument('--fast_adaptation_pretrained_style_transformer_path', type=str, default='',
+                        help='Path to the pre-trained style transformer for fast adaptation stage')
+    
+    parser.add_argument('--fast_adaptation_pretrained_decoder_path', type=str, default='',
+                        help='Path to the pre-trained decoder for fast adaptation stage')
 
 
 
