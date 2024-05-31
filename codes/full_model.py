@@ -145,12 +145,14 @@ class MasterStyleTransferModel(nn.Module):
             self.load_pretained_weights_to_style_transformer(pretrained_weights_path=style_transformer_pretrained_weights_path)
 
         if direct_pretrained_style_transformer_path != '':
-            print("Loading the pretrained weights to the style transformer")
+            print("\nLoading the pretrained weights to the style transformer")
             self.style_transformer.load_state_dict(torch.load(direct_pretrained_style_transformer_path))
+            print("Pretrained weights are loaded to the style transformer\n")
         
         if direct_pretrained_decoder_path != '':
-            print("Loading the pretrained weights to the decoder")
+            print("\nLoading the pretrained weights to the decoder")
             self.decoder.load_state_dict(torch.load(direct_pretrained_decoder_path))
+            print("Pretrained weights are loaded to the decoder\n")
         
     
 

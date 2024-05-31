@@ -291,7 +291,7 @@ class Train:
             for param in self.master_style_transformer.style_transformer.encoder.parameters():
                 param.requires_grad = True
             
-            for param in self.master_style_transformer.decoder():
+            for param in self.master_style_transformer.decoder.parameters():
                 param.requires_grad = False
 
 
