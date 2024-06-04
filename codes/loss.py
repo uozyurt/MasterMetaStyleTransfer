@@ -398,7 +398,7 @@ if __name__ == "__main__":
     VGG_models_to_be_tried = ["VGG_without_batchnorm"]
     # distances_to_be_tried = [("euclidian", "euclidian"), ("euclidian", "euclidian_squared"), ("euclidian_squared", "euclidian"), ("euclidian_squared", "euclidian")]
 
-    distances_to_be_tried = [("euclidian_squared", "euclidian")]
+    distances_to_be_tried = [("euclidian_squared", "euclidian_squared")]
 
     norms_to_be_tried = [True, False]
 

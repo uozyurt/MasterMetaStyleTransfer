@@ -284,14 +284,19 @@ class Train:
 
     def save_models(self, iter):
         """Save the models."""
+        backbone_attn_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_backbone_attn_{iter}.pt")
         style_transformer_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_style_transformer_{iter}.pt")
-        swin_encoder_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_swin_encoder_{iter}.pt")
         decoder_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"{self.exp_name}_decoder_{iter}.pt")
         torch.save(self.master_style_transformer.style_transformer.state_dict(), style_transformer_path)
         torch.save(self.master_style_transformer.decoder.state_dict(), decoder_path)
 
-        if not self.freeze_encoder:
-            torch.save(self.master_style_transformer.swin_encoder.state_dict(), swin_encoder_path)
+        torch.save(self.master_style_transformer.backbone.attn_layers.state_dict(), backbone_attn_path)
+
+
+    def save_whole_model(self, iter):
+        full_model_save_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"full_model_{self.exp_name}_{iter}.pt")
+
+        torch.save(self.master_style_transformer.state_dict(), full_model_save_path)
 
     def copy_model_to_omega(self):
         """

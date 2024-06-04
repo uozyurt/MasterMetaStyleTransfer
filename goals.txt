@@ -1,0 +1,37 @@
+Title: Master: Meta Style Transformer for Controllable Zero-Shot and Few-Shot Artistic Style Transfer
+
+URL: https://arxiv.org/abs/2304.11818
+
+Our focus is on reproducing the quantitative results specified in Table 1, row "Ours-ZS-L1," to evaluate the model's performance under zero-shot conditions with 1 layer settings. Additionally, we plan to replicate the qualitative outcomes presented in Figure 4, following the same "Ours-ZS-L1" settings, to visually assess the effectiveness of our implementation.
+
+
+
+—— version 1 submission ——
+
+The target dataset has an unexpected size of 12 GB (https://www.kaggle.com/competitions/painter-by-numbers/data?select=test.zip). Moveover, our model does not performed as expected. Hence, we created a small test dataset of 30 images to try the loss values.
+
+For the metatrained (original training in the paper), we reproduced:
+    Average test content loss = 7.30 (expected was: 4.13±0.68)
+    Average test style loss = 21.19 (expected was: 0.92±0.40)
+
+
+But, for some of the non meta-trained trials, we managed to get values like:
+    Average *training* content loss around 6.5 (expected was: 4.13±0.68)
+    Average *training* style loss around 0.41 (expected was: 0.92±0.40)
+    
+    or
+    
+    Average *training* content loss around 5.5 (expected was: 4.13±0.68)
+    Average *training* style loss around 0.55 (expected was: 0.92±0.40)
+
+
+For this reason, we think that the main problem might be from meta-training part. Also, normalizing the images before perceptual loss increased the style loss, an when we had not use it, we achieved "too low" style losses as it is in the above examples.
+
+We also will try different interpretations of the architecture for ambiguous parts further (despite the fact that we made over 100 experiment)
+
+—— version 2 submission ——
+
+We did not make any changes to our original goals. However, we have encountered significant challenges in reproducing the results we aimed for. We have not been able to fully reproduce the results we targeted. Our implementation has faced several challenges that have hindered our ability to achieve the expected outcomes.
+
+We encountered several significant challenges that hindered our ability to reproduce the results accurately. The model is not well-defined, with inconsistencies between textual descriptions and visual depictions, unclear parameter-sharing mechanisms, and insufficient hyper-parameter details for zero-shot settings. We have detailed these major problems in the challenges part, including issues with the meta training algorithm and dataset preprocessing.
+

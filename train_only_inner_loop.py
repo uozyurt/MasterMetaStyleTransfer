@@ -1,5 +1,6 @@
 import argparse
 import os
+import cv2
 import yaml
 import random
 from tqdm import tqdm
@@ -335,6 +336,12 @@ class Train:
             torch.save(self.master_style_transformer.swin_encoder.state_dict(), swin_encoder_path)
 
 
+    def save_whole_model(self, iter):
+        full_model_save_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"full_model_{self.exp_name}_{iter}.pt")
+
+        torch.save(self.master_style_transformer.state_dict(), full_model_save_path)
+
+
 
     def train(self):
 
@@ -536,6 +543,9 @@ class Train:
                                'content_image': [wandb.Image(content_images[0])],
                                'style_image': [wandb.Image(style_image)],
                                'stylized_image': [wandb.Image(decoded_output[0])]})
+                # save an image to locale with the iteration number
+                image_save_path = os.path.join(self.project_root, self.model_save_path, self.exp_name, f"stylized_image_{iteration}_layers_{num_layers}.png")
+                cv2.imwrite(image_save_path, (decoded_output[-1].cpu().detach().numpy().transpose(1, 2, 0) * 255).astype(np.uint8))
             else:
                 if self.use_wandb:
                     # Log Iteration and Losses
@@ -546,6 +556,7 @@ class Train:
             if iteration % self.save_every_for_model == 0:
                 # Save model periodically
                 self.save_models(iteration)
+                self.save_whole_model(iteration)
                     
 
             # put some new lines for better readability if verbose is True
