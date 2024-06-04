@@ -4,7 +4,7 @@ Hao Tang, Songhua Liu, Tianwei Lin, Shaoli Huang, Fu Li, Dongliang He, Xinchao W
 
 CVPR2023
 
-**HERE: Add a simple picture from your results**
+![sample results](src/sample_output.png)
 
 This folder provides a re-implementation of this paper in PyTorch, developed as part of the course METU CENG 796 - Deep Generative Models. The re-implementation is provided by:
 * Veli Umut Ozyurt, umut.ozyurt@metu.edu.tr
