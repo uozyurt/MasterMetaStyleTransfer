@@ -33,12 +33,17 @@ We also will try different interpretations of the architecture for ambiguous par
 
 We found the actual test set, which allows 220 content-style combinations.
 
-For the average test content loss:
-expected: 4.13 ± 0.68
+For the average test content loss (Zero-Shot, 1 layer):
+expected: 5.02 ± 0.09
 ours:  7.60 ± 0.10
 
 For the average test style loss (Zero-Shot, 1 layer):
 expected: 0.92 ± 0.40
+ours: 3.00 ± 0.27
+
+
+For the average test content loss: (Zero-Shot, 3 layer):
+expected: 5.07 ± 0.06
 ours: 3.00 ± 0.27
 
 For the average test style loss (Zero-Shot, 3 layer):
