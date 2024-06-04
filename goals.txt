@@ -31,6 +31,21 @@ We also will try different interpretations of the architecture for ambiguous par
 
 —— version 2 submission ——
 
+We found the actual test set, which allows 220 content-style combinations.
+
+For the average test content loss:
+expected: 4.13 ± 0.68
+ours:  7.60 ± 0.10
+
+For the average test style loss (Zero-Shot, 1 layer):
+expected: 0.92 ± 0.40
+ours: 3.00 ± 0.27
+
+For the average test style loss (Zero-Shot, 3 layer):
+expected: 0.81 ± 0.31
+ours: 2.85 ± 0.18
+
+
 We did not make any changes to our original goals. However, we have encountered significant challenges in reproducing the results we aimed for. We have not been able to fully reproduce the results we targeted. Our implementation has faced several challenges that have hindered our ability to achieve the expected outcomes.
 
 We encountered several significant challenges that hindered our ability to reproduce the results accurately. The model is not well-defined, with inconsistencies between textual descriptions and visual depictions, unclear parameter-sharing mechanisms, and insufficient hyper-parameter details for zero-shot settings. We have detailed these major problems in the challenges part, including issues with the meta training algorithm and dataset preprocessing.
