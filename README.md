@@ -4,7 +4,10 @@ Hao Tang, Songhua Liu, Tianwei Lin, Shaoli Huang, Fu Li, Dongliang He, Xinchao W
 
 CVPR2023
 
-![sample results](src/sample_output.png)
+model outputs with style lambda value = 2:
+![model outputs with style lambda value = 2](src/random_style_effect_lambda_2.png)
+
+![model outputs with style lambda value = 4](src/random_style_effect_lambda_4.png)
 
 This folder provides a re-implementation of this paper in PyTorch, developed as part of the course METU CENG 796 - Deep Generative Models. The re-implementation is provided by:
 * Veli Umut Ozyurt, umut.ozyurt@metu.edu.tr

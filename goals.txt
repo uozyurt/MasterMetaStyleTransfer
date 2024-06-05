@@ -33,22 +33,29 @@ We also will try different interpretations of the architecture for ambiguous par
 
 We found the actual test set, which allows 220 content-style combinations.
 
+
 For the average test content loss (Zero-Shot, 1 layer):
-expected: 5.02 ± 0.09
-ours:  7.60 ± 0.10
+expected:       4.13 ± 0.68
+ours (lamda=4): 5.42 ± 0.10
+ours (lamda=2): 2.81 ± 0.13
 
 For the average test style loss (Zero-Shot, 1 layer):
-expected: 0.92 ± 0.40
-ours: 3.00 ± 0.27
+expected:       0.92 ± 0.40
+ours (lamda=4): 1.89 ± 0.16
+ours (lamda=2): 2.30 ± 0.17
+
+
 
 
 For the average test content loss: (Zero-Shot, 3 layer):
-expected: 5.07 ± 0.06
-ours: 3.00 ± 0.27
+expected:       4.20 ± 0.68
+ours (lamda=4): 5.37 ± 0.07
+ours (lamda=2): 2.76 ± 0.09
 
 For the average test style loss (Zero-Shot, 3 layer):
-expected: 0.81 ± 0.31
-ours: 2.85 ± 0.18
+expected:       0.81 ± 0.31
+ours (lamda=4): 1.82 ± 0.09
+ours (lamda=2): 2.25 ± 0.11
 
 
 We did not make any changes to our original goals. However, we have encountered significant challenges in reproducing the results we aimed for. We have not been able to fully reproduce the results we targeted. Our implementation has faced several challenges that have hindered our ability to achieve the expected outcomes.
